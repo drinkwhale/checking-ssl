@@ -142,3 +142,28 @@ cython_debug/
 
 # Claude Code configuration and data
 .claude/
+
+# SSL Checker specific
+ssl_checker.db
+ssl_checker.db-journal
+
+# Log files
+*.log
+logs/
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.yaml.bak
+*.yml.bak
+
+# SSL certificates (temporary files)
+*.pem
+*.crt
+*.key
+temp_ssl/
+
+# Test reports
+test-reports/
+coverage-reports/
