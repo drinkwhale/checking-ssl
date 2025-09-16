@@ -167,3 +167,5 @@ temp_ssl/
 # Test reports
 test-reports/
 coverage-reports/
+
+CLAUDE.md
