@@ -5,7 +5,7 @@ uvicorn[standard]==0.24.0
 # 데이터베이스 ORM 및 드라이버
 sqlalchemy==2.0.23
 alembic==1.13.0
-psycopg2-binary==2.9.9  # PostgreSQL 운영환경용
+psycopg[binary]==3.1.18  # PostgreSQL 운영환경용 (ARM64 호환)
 aiosqlite==0.19.0       # SQLite 개발환경용
 
 # 스케줄러
@@ -17,6 +17,9 @@ pyopenssl==23.3.0
 
 # HTTP 클라이언트
 httpx==0.25.2
+
+# 시스템 모니터링
+psutil==5.9.6
 
 # 설정 관리
 python-dotenv==1.0.0

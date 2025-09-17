@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSL Certificate Monitor</title>
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23059669'><path d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z'/></svg>">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Heroicons (아이콘은 SVG로 직접 구현) -->
+
+    <!-- Chart.js for 통계 차트 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- 커스텀 스타일 -->
+    <style>
+        /* 스크롤바 스타일링 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* 로딩 애니메이션 */
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 페이드인 애니메이션 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* SSL 상태 배지 */
+        .status-valid {
+            @apply bg-green-100 text-green-800 border-green-200;
+        }
+        .status-expired {
+            @apply bg-red-100 text-red-800 border-red-200;
+        }
+        .status-invalid {
+            @apply bg-yellow-100 text-yellow-800 border-yellow-200;
+        }
+        .status-unknown {
+            @apply bg-gray-100 text-gray-800 border-gray-200;
+        }
+
+        /* 만료 임박 경고 */
+        .expiring-soon {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- 네비게이션 헤더 -->
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <div class="flex items-center">
+                            <svg class="w-8 h-8 text-green-600 mr-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+                            </svg>
+                            <h1 class="text-xl font-semibold text-gray-900">SSL Certificate Monitor</h1>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <button id="refresh-btn" class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                        새로고침
+                    </button>
+
+                    <button id="add-website-btn" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                        </svg>
+                        웹사이트 추가
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 메인 컨텐츠 -->
+    <main class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <!-- 상태 요약 대시보드 -->
+        <div class="mb-8">
+            <h2 class="text-lg font-medium text-gray-900 mb-4">SSL 인증서 현황</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- 전체 웹사이트 수 -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9"/>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">전체 웹사이트</dt>
+                                    <dd class="text-lg font-medium text-gray-900" id="total-websites">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 유효한 인증서 -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">유효한 인증서</dt>
+                                    <dd class="text-lg font-medium text-green-600" id="valid-certificates">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 만료된 인증서 -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">만료된 인증서</dt>
+                                    <dd class="text-lg font-medium text-red-600" id="expired-certificates">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 7일 내 만료 예정 -->
+                <div class="bg-white overflow-hidden shadow rounded-lg">
+                    <div class="p-5">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                                </svg>
+                            </div>
+                            <div class="ml-5 w-0 flex-1">
+                                <dl>
+                                    <dt class="text-sm font-medium text-gray-500 truncate">7일 내 만료</dt>
+                                    <dd class="text-lg font-medium text-yellow-600" id="expiring-soon">-</dd>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 필터 및 작업 버튼 -->
+        <div class="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div class="flex items-center space-x-4">
+                <select id="status-filter" class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm rounded-md">
+                    <option value="">모든 상태</option>
+                    <option value="valid">유효</option>
+                    <option value="expired">만료</option>
+                    <option value="invalid">오류</option>
+                    <option value="unknown">확인 필요</option>
+                </select>
+
+                <div class="flex items-center">
+                    <input type="checkbox" id="active-only" class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded" checked>
+                    <label for="active-only" class="ml-2 block text-sm text-gray-900">활성 사이트만</label>
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+                <button id="bulk-check-btn" class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                    </svg>
+                    일괄 체크
+                </button>
+
+                <button id="notifications-btn" class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5v-5zM10.5 3.75a6 6 0 0 1 6 6v2.25l2.25 2.25v2.25H2.25V12l2.25-2.25V9.75a6 6 0 0 1 6-6z"/>
+                    </svg>
+                    알림 발송
+                </button>
+            </div>
+        </div>
+
+        <!-- 웹사이트 목록 -->
+        <div class="bg-white shadow overflow-hidden sm:rounded-md">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-lg leading-6 font-medium text-gray-900">웹사이트 목록</h3>
+                <p class="mt-1 max-w-2xl text-sm text-gray-500">등록된 웹사이트와 SSL 인증서 상태를 확인하세요.</p>
+            </div>
+
+            <!-- 로딩 상태 -->
+            <div id="loading-state" class="px-4 py-8 text-center">
+                <svg class="loading-spinner w-8 h-8 text-green-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <p class="text-gray-500">데이터를 불러오는 중...</p>
+            </div>
+
+            <!-- 빈 상태 -->
+            <div id="empty-state" class="px-4 py-8 text-center hidden">
+                <svg class="w-12 h-12 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9"/>
+                </svg>
+                <h3 class="text-lg font-medium text-gray-900 mb-2">등록된 웹사이트가 없습니다</h3>
+                <p class="text-gray-500 mb-4">첫 번째 웹사이트를 추가하여 SSL 인증서 모니터링을 시작하세요.</p>
+                <button class="add-website-trigger inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
+                    웹사이트 추가
+                </button>
+            </div>
+
+            <!-- 웹사이트 목록 -->
+            <ul id="websites-list" class="divide-y divide-gray-200">
+                <!-- 동적으로 생성됨 -->
+            </ul>
+        </div>
+    </main>
+
+    <!-- 웹사이트 추가 모달 -->
+    <div id="add-website-modal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+
+            <!-- 모달 중앙 정렬을 위한 트릭 -->
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
+                            <svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                            </svg>
+                        </div>
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                                웹사이트 추가
+                            </h3>
+                            <div class="mt-4">
+                                <form id="add-website-form">
+                                    <div class="mb-4">
+                                        <label for="website-url" class="block text-sm font-medium text-gray-700 mb-2">웹사이트 URL *</label>
+                                        <input type="url" id="website-url" name="url" required
+                                               placeholder="https://example.com"
+                                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                                        <p class="mt-1 text-xs text-gray-500">HTTPS URL만 지원됩니다</p>
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <label for="website-name" class="block text-sm font-medium text-gray-700 mb-2">표시명 (선택)</label>
+                                        <input type="text" id="website-name" name="name"
+                                               placeholder="사이트 설명"
+                                               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500">
+                                    </div>
+
+                                    <div class="mb-4">
+                                        <div class="flex items-center">
+                                            <input type="checkbox" id="auto-check-ssl" name="auto_check_ssl" checked
+                                                   class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded">
+                                            <label for="auto-check-ssl" class="ml-2 block text-sm text-gray-900">
+                                                추가 시 SSL 인증서 자동 체크
+                                            </label>
+                                        </div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button type="submit" form="add-website-form" id="submit-website"
+                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        추가
+                    </button>
+                    <button type="button" id="cancel-website"
+                            class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        취소
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 상세 정보 모달 -->
+    <div id="detail-modal" class="fixed inset-0 z-50 overflow-y-auto hidden" aria-labelledby="detail-modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900" id="detail-modal-title">
+                            SSL 인증서 상세 정보
+                        </h3>
+                        <button id="close-detail-modal" class="text-gray-400 hover:text-gray-500">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div id="detail-content">
+                        <!-- 동적으로 생성됨 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토스트 알림 -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2">
+        <!-- 동적으로 생성됨 -->
+    </div>
+
+    <!-- JavaScript 파일 로드 -->
+    <script src="/js/api.js?v=20250917-2"></script>
+    <script>
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            // API 클라이언트 초기화
+            // JavaScript 파일 로드 완료 대기
+            setTimeout(function() {
+                console.log('SSLMonitorAPI 타입:', typeof SSLMonitorAPI);
+                console.log('window.SSLMonitorAPI:', window.SSLMonitorAPI);
+
+                // SSLMonitorAPI 클래스가 로드되었지만 인스턴스가 없으면 생성
+                if (typeof SSLMonitorAPI !== 'undefined') {
+                    if (!window.SSLMonitorAPI || typeof window.SSLMonitorAPI.init !== 'function') {
+                        console.log('SSLMonitorAPI 인스턴스 생성 중...');
+                        window.SSLMonitorAPI = new SSLMonitorAPI();
+                    }
+
+                    // API 초기화
+                    window.SSLMonitorAPI.init();
+                    console.log('SSLMonitorAPI 초기화 완료');
+
+                    // 초기 데이터 로드
+                    loadDashboardData();
+
+                    // 이벤트 리스너 등록
+                    setupEventListeners();
+
+                    // 주기적 새로고침 (5분마다)
+                    setInterval(loadDashboardData, 5 * 60 * 1000);
+                } else {
+                    console.error('SSLMonitorAPI 클래스를 찾을 수 없습니다');
+                    showToast('API 클라이언트를 로드할 수 없습니다', 'error');
+                }
+            }, 500); // 500ms로 지연 시간 증가
+        });
+
+        // 이벤트 리스너 설정
+        function setupEventListeners() {
+            // 새로고침 버튼
+            document.getElementById('refresh-btn').addEventListener('click', loadDashboardData);
+
+            // 웹사이트 추가 버튼
+            document.getElementById('add-website-btn').addEventListener('click', openAddWebsiteModal);
+            document.querySelectorAll('.add-website-trigger').forEach(btn => {
+                btn.addEventListener('click', openAddWebsiteModal);
+            });
+
+            // 모달 관련
+            document.getElementById('cancel-website').addEventListener('click', closeAddWebsiteModal);
+            document.getElementById('add-website-form').addEventListener('submit', handleAddWebsite);
+            document.getElementById('close-detail-modal').addEventListener('click', closeDetailModal);
+
+            // 필터
+            document.getElementById('status-filter').addEventListener('change', loadWebsitesList);
+            document.getElementById('active-only').addEventListener('change', loadWebsitesList);
+
+            // 일괄 작업
+            document.getElementById('bulk-check-btn').addEventListener('click', handleBulkCheck);
+            document.getElementById('notifications-btn').addEventListener('click', handleSendNotifications);
+
+            // 모달 백그라운드 클릭 시 닫기
+            document.getElementById('add-website-modal').addEventListener('click', function(e) {
+                if (e.target === this) closeAddWebsiteModal();
+            });
+            document.getElementById('detail-modal').addEventListener('click', function(e) {
+                if (e.target === this) closeDetailModal();
+            });
+        }
+
+        // 대시보드 데이터 로드
+        async function loadDashboardData() {
+            try {
+                // SSL 상태 요약 로드
+                await loadSSLSummary();
+
+                // 웹사이트 목록 로드
+                await loadWebsitesList();
+
+            } catch (error) {
+                console.error('대시보드 데이터 로드 실패:', error);
+                showToast('데이터를 불러올 수 없습니다', 'error');
+            }
+        }
+
+        // SSL 상태 요약 로드
+        async function loadSSLSummary() {
+            try {
+                const summary = await window.SSLMonitorAPI.ssl.getStatusSummary();
+
+                // 요약 정보 업데이트
+                document.getElementById('total-websites').textContent = summary.total_certificates || 0;
+                document.getElementById('valid-certificates').textContent = summary.valid_certificates || 0;
+                document.getElementById('expired-certificates').textContent = summary.expired_certificates || 0;
+                document.getElementById('expiring-soon').textContent = summary.expiring_in_7_days || 0;
+
+                // 만료 임박 경고 표시
+                const expiringSoonElement = document.getElementById('expiring-soon');
+                if (summary.expiring_in_7_days > 0) {
+                    expiringSoonElement.classList.add('expiring-soon');
+                } else {
+                    expiringSoonElement.classList.remove('expiring-soon');
+                }
+
+            } catch (error) {
+                console.error('SSL 요약 로드 실패:', error);
+            }
+        }
+
+        // 웹사이트 목록 로드
+        async function loadWebsitesList() {
+            const loadingState = document.getElementById('loading-state');
+            const emptyState = document.getElementById('empty-state');
+            const websitesList = document.getElementById('websites-list');
+
+            // 로딩 상태 표시
+            loadingState.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            websitesList.innerHTML = '';
+
+            try {
+                const statusFilter = document.getElementById('status-filter').value;
+                const activeOnly = document.getElementById('active-only').checked;
+
+                const websites = await window.SSLMonitorAPI.websites.list({
+                    active_only: activeOnly,
+                    include_ssl: true
+                });
+
+                loadingState.classList.add('hidden');
+
+                if (websites.length === 0) {
+                    emptyState.classList.remove('hidden');
+                    return;
+                }
+
+                // 상태 필터 적용
+                const filteredWebsites = statusFilter
+                    ? websites.filter(w => w.ssl_certificate?.status === statusFilter)
+                    : websites;
+
+                // 웹사이트 목록 렌더링
+                websitesList.innerHTML = filteredWebsites.map(website => renderWebsiteItem(website)).join('');
+
+                // 이벤트 리스너 재등록
+                setupWebsiteItemListeners();
+
+            } catch (error) {
+                console.error('웹사이트 목록 로드 실패:', error);
+                loadingState.classList.add('hidden');
+                showToast('웹사이트 목록을 불러올 수 없습니다', 'error');
+            }
+        }
+
+        // 웹사이트 항목 렌더링
+        function renderWebsiteItem(website) {
+            const site = website.website;
+            const ssl = website.ssl_certificate;
+
+            const statusClass = ssl ? `status-${ssl.status}` : 'status-unknown';
+            const statusText = ssl ? getStatusText(ssl.status) : '확인 필요';
+
+            let expiryInfo = '';
+            if (ssl && ssl.status === 'valid') {
+                const daysUntilExpiry = Math.floor((new Date(ssl.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
+                if (daysUntilExpiry <= 30) {
+                    const warningClass = daysUntilExpiry <= 7 ? 'text-red-600' : 'text-yellow-600';
+                    expiryInfo = `<span class="${warningClass}">${daysUntilExpiry}일 후 만료</span>`;
+                } else {
+                    expiryInfo = `${daysUntilExpiry}일 후 만료`;
+                }
+            }
+
+            return `
+                <li class="website-item fade-in" data-website-id="${site.id}">
+                    <div class="px-4 py-4 flex items-center justify-between hover:bg-gray-50">
+                        <div class="flex items-center min-w-0 flex-1">
+                            <div class="flex-shrink-0">
+                                <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9"/>
+                                    </svg>
+                                </div>
+                            </div>
+                            <div class="ml-4 min-w-0 flex-1">
+                                <div class="flex items-center">
+                                    <p class="text-sm font-medium text-gray-900 truncate">
+                                        ${site.name || site.url}
+                                    </p>
+                                    ${!site.is_active ? '<span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">비활성</span>' : ''}
+                                </div>
+                                <div class="flex items-center mt-1">
+                                    <p class="text-sm text-gray-500 truncate">${site.url}</p>
+                                    <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusClass}">
+                                        ${statusText}
+                                    </span>
+                                </div>
+                                ${expiryInfo ? `<p class="text-xs text-gray-500 mt-1">${expiryInfo}</p>` : ''}
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button class="ssl-check-btn inline-flex items-center p-2 border border-gray-300 rounded-md text-gray-400 hover:text-gray-500 hover:border-gray-400"
+                                    data-website-id="${site.id}" title="SSL 체크">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                            </button>
+                            <button class="detail-btn inline-flex items-center p-2 border border-gray-300 rounded-md text-gray-400 hover:text-gray-500 hover:border-gray-400"
+                                    data-website-id="${site.id}" title="상세 정보">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </button>
+                            <button class="delete-btn inline-flex items-center p-2 border border-gray-300 rounded-md text-red-400 hover:text-red-500 hover:border-red-400"
+                                    data-website-id="${site.id}" title="삭제">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </li>
+            `;
+        }
+
+        // 상태 텍스트 변환
+        function getStatusText(status) {
+            const statusMap = {
+                'valid': '유효',
+                'expired': '만료',
+                'invalid': '오류',
+                'unknown': '확인 필요'
+            };
+            return statusMap[status] || '알 수 없음';
+        }
+
+        // 웹사이트 항목 이벤트 리스너 설정
+        function setupWebsiteItemListeners() {
+            // SSL 체크 버튼
+            document.querySelectorAll('.ssl-check-btn').forEach(btn => {
+                btn.addEventListener('click', handleSSLCheck);
+            });
+
+            // 상세 정보 버튼
+            document.querySelectorAll('.detail-btn').forEach(btn => {
+                btn.addEventListener('click', handleShowDetail);
+            });
+
+            // 삭제 버튼
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', handleDeleteWebsite);
+            });
+        }
+
+        // 모달 관련 함수들
+        function openAddWebsiteModal() {
+            document.getElementById('add-website-modal').classList.remove('hidden');
+            document.getElementById('website-url').focus();
+        }
+
+        function closeAddWebsiteModal() {
+            document.getElementById('add-website-modal').classList.add('hidden');
+            document.getElementById('add-website-form').reset();
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detail-modal').classList.add('hidden');
+        }
+
+        // 웹사이트 추가 처리
+        async function handleAddWebsite(e) {
+            e.preventDefault();
+
+            const formData = new FormData(e.target);
+            const websiteData = {
+                url: formData.get('url'),
+                name: formData.get('name') || null,
+                auto_check_ssl: formData.get('auto_check_ssl') === 'on'
+            };
+
+            const submitBtn = document.getElementById('submit-website');
+            const originalText = submitBtn.textContent;
+
+            try {
+                submitBtn.disabled = true;
+                submitBtn.textContent = '추가 중...';
+
+                await window.SSLMonitorAPI.websites.create(websiteData);
+
+                showToast('웹사이트가 성공적으로 추가되었습니다', 'success');
+                closeAddWebsiteModal();
+                loadDashboardData();
+
+            } catch (error) {
+                console.error('웹사이트 추가 실패:', error);
+                showToast('웹사이트 추가에 실패했습니다', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+        }
+
+        // SSL 체크 처리
+        async function handleSSLCheck(e) {
+            const websiteId = e.currentTarget.dataset.websiteId;
+            const btn = e.currentTarget;
+            const icon = btn.querySelector('svg');
+
+            try {
+                icon.classList.add('loading-spinner');
+                btn.disabled = true;
+
+                await window.SSLMonitorAPI.websites.sslCheck(websiteId);
+
+                showToast('SSL 체크가 완료되었습니다', 'success');
+                loadDashboardData();
+
+            } catch (error) {
+                console.error('SSL 체크 실패:', error);
+                showToast('SSL 체크에 실패했습니다', 'error');
+            } finally {
+                icon.classList.remove('loading-spinner');
+                btn.disabled = false;
+            }
+        }
+
+        // 상세 정보 표시
+        async function handleShowDetail(e) {
+            const websiteId = e.currentTarget.dataset.websiteId;
+
+            try {
+                const website = await window.SSLMonitorAPI.websites.get(websiteId);
+                showDetailModal(website);
+
+            } catch (error) {
+                console.error('상세 정보 로드 실패:', error);
+                showToast('상세 정보를 불러올 수 없습니다', 'error');
+            }
+        }
+
+        // 상세 정보 모달 표시
+        function showDetailModal(website) {
+            const modal = document.getElementById('detail-modal');
+            const content = document.getElementById('detail-content');
+
+            const site = website.website;
+            const ssl = website.ssl_certificate;
+
+            content.innerHTML = `
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div>
+                        <h4 class="text-lg font-medium text-gray-900 mb-4">웹사이트 정보</h4>
+                        <dl class="space-y-3">
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">URL</dt>
+                                <dd class="text-sm text-gray-900">${site.url}</dd>
+                            </div>
+                            ${site.name ? `
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">표시명</dt>
+                                <dd class="text-sm text-gray-900">${site.name}</dd>
+                            </div>
+                            ` : ''}
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">상태</dt>
+                                <dd class="text-sm text-gray-900">${site.is_active ? '활성' : '비활성'}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">등록일</dt>
+                                <dd class="text-sm text-gray-900">${new Date(site.created_at).toLocaleString('ko-KR')}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <div>
+                        <h4 class="text-lg font-medium text-gray-900 mb-4">SSL 인증서 정보</h4>
+                        ${ssl ? `
+                        <dl class="space-y-3">
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">상태</dt>
+                                <dd class="text-sm">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border status-${ssl.status}">
+                                        ${getStatusText(ssl.status)}
+                                    </span>
+                                </dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">발행기관</dt>
+                                <dd class="text-sm text-gray-900">${ssl.issuer}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">주체</dt>
+                                <dd class="text-sm text-gray-900">${ssl.subject}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">발행일</dt>
+                                <dd class="text-sm text-gray-900">${new Date(ssl.issued_date).toLocaleDateString('ko-KR')}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">만료일</dt>
+                                <dd class="text-sm text-gray-900">${new Date(ssl.expiry_date).toLocaleDateString('ko-KR')}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">시리얼 번호</dt>
+                                <dd class="text-sm text-gray-900 font-mono">${ssl.serial_number}</dd>
+                            </div>
+                        </dl>
+                        ` : `
+                        <p class="text-sm text-gray-500">SSL 인증서 정보가 없습니다.</p>
+                        `}
+                    </div>
+                </div>
+            `;
+
+            modal.classList.remove('hidden');
+        }
+
+        // 웹사이트 삭제 처리
+        async function handleDeleteWebsite(e) {
+            const websiteId = e.currentTarget.dataset.websiteId;
+
+            if (!confirm('정말로 이 웹사이트를 삭제하시겠습니까? 관련된 모든 SSL 인증서 정보도 함께 삭제됩니다.')) {
+                return;
+            }
+
+            try {
+                await window.SSLMonitorAPI.websites.delete(websiteId);
+
+                showToast('웹사이트가 삭제되었습니다', 'success');
+                loadDashboardData();
+
+            } catch (error) {
+                console.error('웹사이트 삭제 실패:', error);
+                showToast('웹사이트 삭제에 실패했습니다', 'error');
+            }
+        }
+
+        // 일괄 SSL 체크
+        async function handleBulkCheck() {
+            const btn = document.getElementById('bulk-check-btn');
+            const originalText = btn.textContent;
+
+            try {
+                btn.disabled = true;
+                btn.textContent = '체크 중...';
+
+                await window.SSLMonitorAPI.websites.bulkCheck();
+
+                showToast('일괄 SSL 체크가 완료되었습니다', 'success');
+                loadDashboardData();
+
+            } catch (error) {
+                console.error('일괄 SSL 체크 실패:', error);
+                showToast('일괄 SSL 체크에 실패했습니다', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        // 알림 발송
+        async function handleSendNotifications() {
+            const btn = document.getElementById('notifications-btn');
+            const originalText = btn.textContent;
+
+            try {
+                btn.disabled = true;
+                btn.textContent = '발송 중...';
+
+                await window.SSLMonitorAPI.tasks.submitNotification();
+
+                showToast('알림 발송 작업이 제출되었습니다', 'success');
+
+            } catch (error) {
+                console.error('알림 발송 실패:', error);
+                showToast('알림 발송에 실패했습니다', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = originalText;
+            }
+        }
+
+        // 토스트 알림 표시
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toastId = 'toast-' + Date.now();
+
+            const bgColor = {
+                'success': 'bg-green-500',
+                'error': 'bg-red-500',
+                'warning': 'bg-yellow-500',
+                'info': 'bg-blue-500'
+            }[type] || 'bg-gray-500';
+
+            const toast = document.createElement('div');
+            toast.id = toastId;
+            toast.className = `${bgColor} text-white px-4 py-3 rounded-md shadow-lg transform transition-all duration-300 translate-x-full`;
+            toast.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span>${message}</span>
+                    <button onclick="removeToast('${toastId}')" class="ml-3 text-white hover:text-gray-200">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+
+            container.appendChild(toast);
+
+            // 애니메이션을 위한 지연
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 10);
+
+            // 자동 제거
+            setTimeout(() => {
+                removeToast(toastId);
+            }, 5000);
+        }
+
+        // 토스트 제거
+        function removeToast(toastId) {
+            const toast = document.getElementById(toastId);
+            if (toast) {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }
+        }
+    </script>
+</body>
+</html>

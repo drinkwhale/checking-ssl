@@ -12,6 +12,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func, update
+from fastapi import Depends
 
 from ..models.website import Website
 from ..models.ssl_certificate import SSLCertificate, SSLStatus
@@ -582,17 +583,13 @@ class SSLService:
 
 
 # 의존성 주입용 팩토리 함수
-async def get_ssl_service(session: AsyncSession = None) -> SSLService:
-    """SSL 서비스 팩토리 함수
+async def get_ssl_service(session: AsyncSession = Depends(get_async_session)) -> SSLService:
+    """SSL 서비스 팩토리 함수 (FastAPI Depends용)
 
     Args:
-        session: 데이터베이스 세션 (None이면 새로 생성)
+        session: 데이터베이스 세션 (FastAPI dependency injection)
 
     Returns:
         SSL 서비스 인스턴스
     """
-    if session is None:
-        async with get_async_session() as new_session:
-            return SSLService(new_session)
-    else:
-        return SSLService(session)
+    return SSLService(session)

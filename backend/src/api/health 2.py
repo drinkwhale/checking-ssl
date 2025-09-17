@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 
-from ..database import get_async_session, db_manager
+from ..database import get_async_session, get_engine
 from ..models.website import Website
 from ..models.ssl_certificate import SSLCertificate, SSLStatus
 
@@ -74,7 +74,7 @@ async def check_database_health(session: AsyncSession) -> Dict[str, Any]:
         response_time = (time.time() - start_time) * 1000  # ms
 
         # 연결 풀 상태 확인
-        engine = db_manager.engine
+        engine = get_engine()
         pool = engine.pool
         pool_status = {
             "pool_size": pool.size(),

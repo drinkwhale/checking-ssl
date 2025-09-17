@@ -12,12 +12,26 @@ from typing import Dict, Any
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-from .database import init_db, close_db
-from .api import websites, ssl, health
+try:
+    # 패키지로 실행될 때 (python -m backend.src.main)
+    from .database import init_db, close_db
+    from .api import websites, ssl, health, tasks
+    from .scheduler import start_scheduler, stop_scheduler
+    from .background import start_background_executor, stop_background_executor
+except ImportError:
+    # 직접 실행될 때 (python main.py)
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+    from database import init_db, close_db
+    from api import websites, ssl, health, tasks
+    from scheduler import start_scheduler, stop_scheduler
+    from background import start_background_executor, stop_background_executor
 
 
 # 로깅 설정
@@ -43,9 +57,13 @@ async def lifespan(app: FastAPI):
         await init_db()
         logger.info("데이터베이스 초기화 완료")
 
-        # 스케줄러 시작 (추후 구현)
-        # await start_scheduler()
-        # logger.info("스케줄러 시작 완료")
+        # 백그라운드 작업 실행기 시작
+        await start_background_executor()
+        logger.info("백그라운드 작업 실행기 시작 완료")
+
+        # 스케줄러 시작
+        await start_scheduler()
+        logger.info("스케줄러 시작 완료")
 
         yield
 
@@ -53,9 +71,13 @@ async def lifespan(app: FastAPI):
         # 종료 시 실행
         logger.info("SSL Certificate Monitor 종료 중...")
 
-        # 스케줄러 종료 (추후 구현)
-        # await stop_scheduler()
-        # logger.info("스케줄러 종료 완료")
+        # 스케줄러 종료
+        await stop_scheduler()
+        logger.info("스케줄러 종료 완료")
+
+        # 백그라운드 작업 실행기 종료
+        await stop_background_executor()
+        logger.info("백그라운드 작업 실행기 종료 완료")
 
         # 데이터베이스 연결 종료
         await close_db()
@@ -105,6 +127,7 @@ app.add_middleware(
 app.include_router(websites.router)
 app.include_router(ssl.router)
 app.include_router(health.router)
+app.include_router(tasks.router)
 
 
 # 전역 예외 처리
@@ -175,17 +198,42 @@ async def log_requests(request: Request, call_next):
         raise
 
 
-# 루트 엔드포인트
+# 루트 엔드포인트 - 프론트엔드 서빙
 @app.get("/")
 async def root():
-    """루트 엔드포인트 - 기본 정보 제공"""
-    return {
-        "message": "SSL Certificate Monitor API",
-        "version": "1.0.0",
-        "status": "running",
-        "docs_url": "/api/docs",
-        "health_check": "/api/health"
-    }
+    """루트 엔드포인트 - 프론트엔드 대시보드 제공"""
+    try:
+        import os
+        # 프로젝트 루트 디렉토리 찾기
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # backend/src에서 프로젝트 루트로 이동
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        frontend_path = os.path.join(project_root, "frontend", "src", "index.html")
+
+        logger.info(f"프론트엔드 파일 경로: {frontend_path}")
+
+        if os.path.exists(frontend_path):
+            return FileResponse(frontend_path)
+        else:
+            # 프론트엔드 파일이 없는 경우 API 정보 반환
+            return {
+                "message": "SSL Certificate Monitor API",
+                "version": "1.0.0",
+                "status": "running",
+                "docs_url": "/api/docs",
+                "health_check": "/api/health",
+                "note": "Frontend dashboard not found"
+            }
+    except Exception as e:
+        logger.warning(f"프론트엔드 파일 서빙 실패: {e}")
+        return {
+            "message": "SSL Certificate Monitor API",
+            "version": "1.0.0",
+            "status": "running",
+            "docs_url": "/api/docs",
+            "health_check": "/api/health",
+            "error": str(e)
+        }
 
 
 # API 정보 엔드포인트
@@ -200,6 +248,7 @@ async def api_info():
             "websites": "/api/websites",
             "ssl": "/api/ssl",
             "health": "/api/health",
+            "tasks": "/api/tasks",
             "documentation": "/api/docs"
         },
         "features": [
@@ -208,7 +257,9 @@ async def api_info():
             "일괄 SSL 체크",
             "상세 SSL 정보 조회",
             "시스템 헬스체크",
-            "실시간 메트릭"
+            "실시간 메트릭",
+            "자동 스케줄링",
+            "백그라운드 작업 관리"
         ]
     }
 
@@ -216,10 +267,25 @@ async def api_info():
 # 정적 파일 서빙 (프론트엔드용)
 try:
     import os
-    frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "src")
+    # 프로젝트 루트 디렉토리 찾기
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(os.path.dirname(current_dir))
+    frontend_path = os.path.join(project_root, "frontend", "src")
+
     if os.path.exists(frontend_path):
+        # JavaScript, CSS 등 정적 파일을 위한 마운트
+        js_path = os.path.join(frontend_path, "js")
+        if os.path.exists(js_path):
+            app.mount("/js", StaticFiles(directory=js_path), name="js")
+
+        css_path = os.path.join(frontend_path, "css")
+        if os.path.exists(css_path):
+            app.mount("/css", StaticFiles(directory=css_path), name="css")
+
         app.mount("/static", StaticFiles(directory=frontend_path), name="static")
         logger.info(f"정적 파일 서빙 설정: {frontend_path}")
+    else:
+        logger.warning(f"프론트엔드 디렉토리를 찾을 수 없음: {frontend_path}")
 except Exception as e:
     logger.warning(f"정적 파일 서빙 설정 실패: {e}")
 

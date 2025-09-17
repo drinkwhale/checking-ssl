@@ -12,6 +12,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from fastapi import Depends
 
 from ..models.website import Website
 from ..models.ssl_certificate import SSLCertificate, SSLStatus
@@ -157,7 +158,6 @@ class WebsiteService:
 
             self.session.add(ssl_certificate)
             await self.session.commit()
-            await self.session.refresh(ssl_certificate)
 
             logger.info(f"SSL 인증서 정보 저장됨: {website.url} - {status.value}")
             return ssl_certificate
@@ -196,7 +196,6 @@ class WebsiteService:
 
             self.session.add(ssl_certificate)
             await self.session.commit()
-            await self.session.refresh(ssl_certificate)
 
             logger.info(f"SSL 오류 정보 저장됨: {website.url} - {error_message}")
             return ssl_certificate
@@ -542,17 +541,13 @@ class WebsiteService:
 
 
 # 의존성 주입용 팩토리 함수
-async def get_website_service(session: AsyncSession = None) -> WebsiteService:
-    """웹사이트 서비스 팩토리 함수
+async def get_website_service(session: AsyncSession = Depends(get_async_session)) -> WebsiteService:
+    """웹사이트 서비스 팩토리 함수 (FastAPI Depends용)
 
     Args:
-        session: 데이터베이스 세션 (None이면 새로 생성)
+        session: 데이터베이스 세션 (FastAPI dependency injection)
 
     Returns:
         웹사이트 서비스 인스턴스
     """
-    if session is None:
-        async with get_async_session() as new_session:
-            return WebsiteService(new_session)
-    else:
-        return WebsiteService(session)
+    return WebsiteService(session)

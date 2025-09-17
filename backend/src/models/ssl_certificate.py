@@ -20,7 +20,16 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.ext.declarative import declarative_base
 
-from .website import Base
+try:
+    # 패키지로 실행될 때 (python -m backend.src.models.ssl_certificate)
+    from .website import Base, GUID
+except ImportError:
+    # 직접 실행될 때 (python ssl_certificate.py)
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+    from website import Base, GUID
 
 
 class SSLStatus(Enum):
@@ -55,15 +64,14 @@ class SSLCertificate(Base):
 
     # Primary Key
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        GUID(),
         primary_key=True,
         default=uuid.uuid4,
-        server_default=text("gen_random_uuid()"),
     )
 
     # Foreign Key to Website
     website_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
+        GUID(),
         ForeignKey("websites.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

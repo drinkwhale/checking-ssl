@@ -13,8 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 
-from .models.website import Base
-from .models.ssl_certificate import SSLCertificate  # Import to register the table
+try:
+    # 패키지로 실행될 때 (python -m backend.src.database)
+    from .models.website import Base
+    from .models.ssl_certificate import SSLCertificate  # Import to register the table
+except ImportError:
+    # 직접 실행될 때 (python database.py)
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+    from models.website import Base
+    from models.ssl_certificate import SSLCertificate  # Import to register the table
 
 
 class DatabaseConfig:
@@ -182,15 +192,10 @@ class DatabaseManager:
     async def _create_indexes(self) -> None:
         """커스텀 인덱스 생성"""
         indexes = [
-            # 복합 인덱스: 활성 사이트 만료 체크
+            # 복합 인덱스: SSL 인증서 만료 체크
             """
-            CREATE INDEX IF NOT EXISTS idx_active_websites_ssl_expiry
-            ON ssl_certificates (website_id, expiry_date)
-            WHERE EXISTS (
-                SELECT 1 FROM websites w
-                WHERE w.id = ssl_certificates.website_id
-                AND w.is_active = true
-            )
+            CREATE INDEX IF NOT EXISTS idx_ssl_expiry_date
+            ON ssl_certificates (expiry_date, website_id)
             """,
             # 사이트별 히스토리 인덱스
             """
