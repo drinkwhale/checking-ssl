@@ -342,10 +342,18 @@ async def manual_ssl_check(
         )
 
     except WebsiteServiceError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        error_message = str(e)
+        # 삭제된 웹사이트에 대한 SSL 체크 요청은 410 Gone으로 응답
+        if "웹사이트를 찾을 수 없습니다" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="요청한 웹사이트가 삭제되었거나 존재하지 않아 SSL 체크를 수행할 수 없습니다"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_message
+            )
     except HTTPException:
         raise
     except Exception as e:

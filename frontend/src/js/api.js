@@ -145,6 +145,12 @@ class SSLMonitorAPI {
             this.showError('인증이 필요합니다');
         });
 
+        // 리소스 삭제됨
+        this.errorHandlers.set('HTTP_410', (error) => {
+            console.warn('삭제된 리소스 요청:', error);
+            this.showError('요청한 웹사이트가 삭제되었습니다');
+        });
+
         // 서버 오류
         this.errorHandlers.set('INTERNAL_SERVER_ERROR', (error) => {
             console.error('서버 오류:', error);
@@ -309,7 +315,13 @@ class WebsitesAPI {
             this.client.showSuccess('SSL 체크가 완료되었습니다');
             return result;
         } catch (error) {
-            this.client.handleError(error);
+            // 410 Gone 상태의 경우 특별 처리 (삭제된 웹사이트)
+            if (error.status === 410) {
+                console.warn(`삭제된 웹사이트에 대한 SSL 체크 요청: ${websiteId}`);
+                this.client.showError('요청한 웹사이트가 삭제되어 SSL 체크를 수행할 수 없습니다');
+            } else {
+                this.client.handleError(error);
+            }
             throw error;
         }
     }

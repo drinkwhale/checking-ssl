@@ -705,6 +705,8 @@ class WebsiteService:
             # 동기 세션으로 웹사이트 조회 (greenlet 문제 해결용)
             website = await self._get_website_by_id_sync(website_id)
             if not website:
+                # 방어적 처리: 삭제된 웹사이트에 대한 요청을 조용히 처리
+                logger.warning(f"수동 SSL 체크 요청된 웹사이트가 존재하지 않음 (삭제됨): {website_id}")
                 raise WebsiteServiceError(f"웹사이트를 찾을 수 없습니다: {website_id}")
 
             logger.info(f"웹사이트 조회 완료: {website.url}")
