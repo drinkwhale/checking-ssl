@@ -12,6 +12,8 @@ from sqlalchemy import create_engine, MetaData, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
+import asyncio
+import greenlet
 
 try:
     # 패키지로 실행될 때 (python -m backend.src.database)
@@ -131,6 +133,36 @@ class DatabaseManager:
             )
         return self._async_session_factory
 
+    def create_isolated_async_session_factory(self):
+        """격리된 비동기 세션 팩토리 생성 (greenlet 문제 해결용)
+
+        새로운 엔진과 세션 팩토리를 생성하여 greenlet context 충돌을 방지합니다.
+        """
+        # 새로운 엔진 생성
+        if self.config.is_sqlite:
+            isolated_engine = create_async_engine(
+                self.config.async_database_url,
+                echo=self.config.echo,
+                poolclass=StaticPool,
+                connect_args={"check_same_thread": False},
+            )
+        else:
+            isolated_engine = create_async_engine(
+                self.config.async_database_url,
+                echo=self.config.echo,
+                pool_size=2,  # 격리된 세션은 작은 풀 사용
+                max_overflow=5,
+            )
+
+        # 새로운 세션 팩토리 생성
+        return async_sessionmaker(
+            bind=isolated_engine,
+            class_=AsyncSession,
+            autocommit=False,
+            autoflush=False,
+            expire_on_commit=False,
+        )
+
     def get_session(self) -> Session:
         """동기 세션 생성"""
         return self.session_factory()
@@ -232,6 +264,25 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """
     async with db_manager.get_async_session() as session:
         yield session
+
+
+def get_async_session_factory():
+    """비동기 세션 팩토리 반환
+
+    Returns:
+        async_sessionmaker: 독립적인 세션 생성용 팩토리
+    """
+    return db_manager.async_session_factory
+
+def get_isolated_async_session_factory():
+    """격리된 비동기 세션 팩토리 반환 (greenlet 문제 해결용)
+
+    새로운 엔진과 세션을 생성하여 greenlet context 충돌을 방지합니다.
+
+    Returns:
+        async_sessionmaker: 격리된 세션 생성용 팩토리
+    """
+    return db_manager.create_isolated_async_session_factory()
 
 
 def get_session() -> Session:

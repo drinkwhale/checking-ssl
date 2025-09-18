@@ -3,10 +3,12 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 
 # 데이터베이스 ORM 및 드라이버
-sqlalchemy==2.0.23
-alembic==1.13.0
+sqlalchemy==2.0.35
+alembic==1.14.0
+asyncpg==0.29.0          # PostgreSQL 비동기 드라이버 (더 안정적)
 psycopg[binary]==3.1.18  # PostgreSQL 운영환경용 (ARM64 호환)
-aiosqlite==0.19.0       # SQLite 개발환경용
+aiosqlite==0.20.0        # SQLite 개발환경용
+greenlet==3.1.1          # greenlet 최신 버전 명시적 추가
 
 # 스케줄러
 apscheduler==3.10.4
