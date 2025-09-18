@@ -99,29 +99,28 @@ async def get_ssl_status_summary(
     등록된 모든 SSL 인증서의 상태 요약 정보를 제공합니다.
     """
     try:
-        # 기본 쿼리 구성
-        base_query = select(SSLCertificate).join(Website, Website.id == SSLCertificate.website_id)
-
+        # 기본 필터 조건 설정
+        filters = []
         if active_only:
-            base_query = base_query.where(Website.is_active == True)
+            filters.append(Website.is_active == True)
 
         # 전체 인증서 수 조회
-        total_result = await session.execute(
-            select(SSLCertificate.id).select_from(
-                base_query.subquery()
-            )
-        )
+        count_query = select(SSLCertificate.id).join(Website, Website.id == SSLCertificate.website_id)
+        if filters:
+            count_query = count_query.where(and_(*filters))
+
+        total_result = await session.execute(count_query)
         total_certificates = len(total_result.all())
 
         # 상태별 집계
-        status_result = await session.execute(
-            select(SSLCertificate.status, SSLCertificate.id).select_from(
-                base_query.subquery()
-            )
-        )
+        status_query = select(SSLCertificate.status).join(Website, Website.id == SSLCertificate.website_id)
+        if filters:
+            status_query = status_query.where(and_(*filters))
+
+        status_result = await session.execute(status_query)
 
         status_counts = {status.value: 0 for status in SSLStatus}
-        for status, _ in status_result.all():
+        for status, in status_result.all():
             status_counts[status.value] = status_counts.get(status.value, 0) + 1
 
         # 만료 임박 통계
@@ -130,36 +129,38 @@ async def get_ssl_status_summary(
         thirty_days_later = now + timedelta(days=30)
 
         # 7일 내 만료 예정
-        expiring_7_result = await session.execute(
-            base_query.where(
-                and_(
-                    SSLCertificate.expiry_date <= seven_days_later,
-                    SSLCertificate.expiry_date > now,
-                    SSLCertificate.status == SSLStatus.VALID
-                )
-            )
-        )
+        expiring_7_query = select(SSLCertificate.id).join(Website, Website.id == SSLCertificate.website_id)
+        expiring_7_filters = filters + [
+            SSLCertificate.expiry_date <= seven_days_later,
+            SSLCertificate.expiry_date > now,
+            SSLCertificate.status == SSLStatus.VALID
+        ]
+        if expiring_7_filters:
+            expiring_7_query = expiring_7_query.where(and_(*expiring_7_filters))
+
+        expiring_7_result = await session.execute(expiring_7_query)
         expiring_in_7_days = len(expiring_7_result.all())
 
         # 30일 내 만료 예정
-        expiring_30_result = await session.execute(
-            base_query.where(
-                and_(
-                    SSLCertificate.expiry_date <= thirty_days_later,
-                    SSLCertificate.expiry_date > now,
-                    SSLCertificate.status == SSLStatus.VALID
-                )
-            )
-        )
+        expiring_30_query = select(SSLCertificate.id).join(Website, Website.id == SSLCertificate.website_id)
+        expiring_30_filters = filters + [
+            SSLCertificate.expiry_date <= thirty_days_later,
+            SSLCertificate.expiry_date > now,
+            SSLCertificate.status == SSLStatus.VALID
+        ]
+        if expiring_30_filters:
+            expiring_30_query = expiring_30_query.where(and_(*expiring_30_filters))
+
+        expiring_30_result = await session.execute(expiring_30_query)
         expiring_in_30_days = len(expiring_30_result.all())
 
         # 최근 체크 시간
-        latest_check_result = await session.execute(
-            select(SSLCertificate.created_at)
-            .select_from(base_query.subquery())
-            .order_by(desc(SSLCertificate.created_at))
-            .limit(1)
-        )
+        latest_check_query = select(SSLCertificate.created_at).join(Website, Website.id == SSLCertificate.website_id)
+        if filters:
+            latest_check_query = latest_check_query.where(and_(*filters))
+        latest_check_query = latest_check_query.order_by(desc(SSLCertificate.created_at)).limit(1)
+
+        latest_check_result = await session.execute(latest_check_query)
         last_check_time = latest_check_result.scalar_one_or_none()
 
         return SSLStatusSummary(
