@@ -100,6 +100,11 @@ class SSLMonitorAPI {
      * 응답 처리
      */
     async handleResponse(response) {
+        // 204 No Content 응답 처리
+        if (response.status === 204) {
+            return null;
+        }
+
         const contentType = response.headers.get('content-type');
 
         let data;
@@ -110,7 +115,11 @@ class SSLMonitorAPI {
                 throw new APIError('응답 데이터를 파싱할 수 없습니다', 'PARSE_ERROR', error);
             }
         } else {
-            data = await response.text();
+            try {
+                data = await response.text();
+            } catch (error) {
+                throw new APIError('응답 데이터를 읽을 수 없습니다', 'PARSE_ERROR', error);
+            }
         }
 
         if (!response.ok) {

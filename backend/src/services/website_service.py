@@ -114,9 +114,9 @@ class WebsiteService:
             }
 
         except SSLCheckError as e:
-            # SSL 체크 실패 시 오류 상태로 저장 (동기 세션 사용으로 greenlet 문제 해결)
+            # SSL 체크 실패 시 오류 상태로 저장
             error_message = str(e)
-            ssl_certificate = await self._save_ssl_certificate_error_sync(website, error_message)
+            ssl_certificate = await self._save_ssl_error(website, error_message)
 
             logger.warning(f"SSL 체크 실패: {website.url} - {error_message}")
 
@@ -130,7 +130,7 @@ class WebsiteService:
         website: Website,
         ssl_result: Dict[str, Any]
     ) -> Optional[SSLCertificate]:
-        """SSL 인증서 정보를 데이터베이스에 저장
+        """SSL 인증서 정보를 독립적인 세션으로 저장
 
         Args:
             website: 웹사이트 객체
@@ -140,31 +140,35 @@ class WebsiteService:
             저장된 SSL 인증서 객체
         """
         try:
-            cert_info = ssl_result["certificate"]
+            # 독립적인 새 세션 사용
+            from ..database import get_async_session_factory
+            async_session_factory = get_async_session_factory()
 
-            # 상태 결정
-            status = self._determine_ssl_status(ssl_result)
+            async with async_session_factory() as session:
+                cert_info = ssl_result["certificate"]
 
-            # SSL 인증서 객체 생성
-            ssl_certificate = SSLCertificate(
-                website_id=website.id,
-                issuer=cert_info["issuer"],
-                subject=cert_info["subject"],
-                serial_number=cert_info["serial_number"],
-                issued_date=cert_info["not_before"],
-                expiry_date=cert_info["not_after"],
-                fingerprint=cert_info["fingerprint"],
-                status=status
-            )
+                # 상태 결정
+                status = self._determine_ssl_status(ssl_result)
 
-            self.session.add(ssl_certificate)
-            await self.session.commit()
+                # SSL 인증서 객체 생성
+                ssl_certificate = SSLCertificate(
+                    website_id=website.id,
+                    issuer=cert_info["issuer"],
+                    subject=cert_info["subject"],
+                    serial_number=cert_info["serial_number"],
+                    issued_date=cert_info["not_before"],
+                    expiry_date=cert_info["not_after"],
+                    fingerprint=cert_info["fingerprint"],
+                    status=status
+                )
 
-            logger.info(f"SSL 인증서 정보 저장됨: {website.url} - {status.value}")
-            return ssl_certificate
+                session.add(ssl_certificate)
+                await session.commit()
+
+                logger.info(f"SSL 인증서 정보 저장됨 (독립 세션): {website.url} - {status.value}")
+                return ssl_certificate
 
         except Exception as e:
-            await self.session.rollback()
             logger.error(f"SSL 인증서 정보 저장 실패: {website.url} - {str(e)}")
             return None
 
@@ -173,7 +177,7 @@ class WebsiteService:
         website: Website,
         error_message: str
     ) -> Optional[SSLCertificate]:
-        """SSL 오류 정보를 데이터베이스에 저장
+        """SSL 오류 정보를 독립적인 세션으로 저장
 
         Args:
             website: 웹사이트 객체
@@ -183,26 +187,30 @@ class WebsiteService:
             저장된 SSL 인증서 객체 (오류 상태)
         """
         try:
-            # 기본 정보로 SSL 인증서 레코드 생성 (오류 상태)
-            ssl_certificate = SSLCertificate(
-                website_id=website.id,
-                issuer="Unknown (Error)",
-                subject=f"CN={website.url}",
-                serial_number="Error",
-                issued_date=datetime.utcnow(),
-                expiry_date=datetime.utcnow(),  # 임시값
-                fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
-                status=SSLStatus.INVALID
-            )
+            # 독립적인 새 세션 사용
+            from ..database import get_async_session_factory
+            async_session_factory = get_async_session_factory()
 
-            self.session.add(ssl_certificate)
-            await self.session.commit()
+            async with async_session_factory() as session:
+                # 기본 정보로 SSL 인증서 레코드 생성 (오류 상태)
+                ssl_certificate = SSLCertificate(
+                    website_id=website.id,
+                    issuer="SSL Check Error",
+                    subject=f"CN={website.url}",
+                    serial_number="ERROR",
+                    issued_date=datetime.utcnow(),
+                    expiry_date=datetime.utcnow(),  # 임시값
+                    fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
+                    status=SSLStatus.ERROR
+                )
 
-            logger.info(f"SSL 오류 정보 저장됨: {website.url} - {error_message}")
-            return ssl_certificate
+                session.add(ssl_certificate)
+                await session.commit()
+
+                logger.info(f"SSL 오류 정보 저장됨 (독립 세션): {website.url} - {error_message}")
+                return ssl_certificate
 
         except Exception as e:
-            await self.session.rollback()
             logger.error(f"SSL 오류 정보 저장 실패: {website.url} - {str(e)}")
             return None
 
@@ -361,79 +369,6 @@ class WebsiteService:
 
         return ssl_certificate
 
-    async def _save_ssl_certificate_error_sync(
-        self,
-        website: Website,
-        error_message: str
-    ) -> Optional[SSLCertificate]:
-        """동기 세션으로 SSL 오류 정보를 저장 (greenlet 문제 회피)
-
-        Args:
-            website: 웹사이트 객체
-            error_message: 오류 메시지
-
-        Returns:
-            저장된 SSL 인증서 객체 (오류 상태)
-        """
-        import asyncio
-        import concurrent.futures
-
-        def sync_save_ssl_error():
-            """동기 함수로 SSL 오류 저장"""
-            try:
-                from ..database import get_session
-                session = get_session()
-
-                try:
-                    # 오류 상태의 SSL 인증서 생성
-                    ssl_certificate = SSLCertificate(
-                        website_id=website.id,
-                        issuer="SSL Error",
-                        subject=website.url,
-                        serial_number="ERROR",
-                        issued_date=datetime.utcnow(),
-                        expiry_date=datetime.utcnow(),
-                        fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
-                        status=SSLStatus.ERROR,
-                        error_message=error_message
-                    )
-
-                    session.add(ssl_certificate)
-                    session.commit()
-
-                    # 세션이 닫히기 전에 필요한 속성들을 미리 로드
-                    if ssl_certificate:
-                        _ = ssl_certificate.id
-                        _ = ssl_certificate.website_id
-                        _ = ssl_certificate.issuer
-                        _ = ssl_certificate.subject
-                        _ = ssl_certificate.serial_number
-                        _ = ssl_certificate.issued_date
-                        _ = ssl_certificate.expiry_date
-                        _ = ssl_certificate.fingerprint
-                        _ = ssl_certificate.status
-                        _ = ssl_certificate.error_message
-
-                    logger.info(f"SSL 오류 정보 저장됨 (동기 세션): {website.url} - {error_message}")
-                    return ssl_certificate
-
-                except Exception as e:
-                    session.rollback()
-                    logger.error(f"SSL 오류 정보 저장 실패 (동기 세션): {website.url} - {str(e)}")
-                    return None
-                finally:
-                    session.close()
-
-            except Exception as e:
-                logger.error(f"SSL 오류 정보 저장 중 예외 (동기 세션): {website.url} - {str(e)}")
-                return None
-
-        # 별도 스레드에서 동기 작업 실행
-        loop = asyncio.get_event_loop()
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            ssl_certificate = await loop.run_in_executor(executor, sync_save_ssl_error)
-
-        return ssl_certificate
 
     async def _get_website_by_id_sync(self, website_id: uuid.UUID) -> Optional[Website]:
         """동기 세션으로 웹사이트 조회 (greenlet 문제 회피)
@@ -733,8 +668,8 @@ class WebsiteService:
             except Exception as ssl_error:
                 logger.warning(f"SSL 체크 실패: {website.url} - {ssl_error}")
 
-                # SSL 체크 오류도 동기 세션으로 저장
-                ssl_certificate = await self._save_ssl_certificate_error_sync(website, str(ssl_error))
+                # SSL 체크 오류 저장
+                ssl_certificate = await self._save_ssl_error(website, str(ssl_error))
 
                 ssl_result = {
                     "ssl_certificate": ssl_certificate.to_dict() if ssl_certificate else None,
@@ -816,9 +751,9 @@ class WebsiteService:
                     except Exception as e:
                         logger.error(f"웹사이트 SSL 체크 실패: {website.url} - {str(e)}")
 
-                        # SSL 체크 오류도 동기 세션으로 저장
+                        # SSL 체크 오류 저장
                         try:
-                            ssl_certificate = await self._save_ssl_certificate_error_sync(website, str(e))
+                            ssl_certificate = await self._save_ssl_error(website, str(e))
                         except Exception as save_error:
                             logger.error(f"SSL 오류 정보 저장 실패: {website.url} - {str(save_error)}")
                             ssl_certificate = None

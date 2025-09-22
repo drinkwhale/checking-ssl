@@ -53,6 +53,7 @@ class SSLCertificateInfo(BaseModel):
 
 class SSLStatusSummary(BaseModel):
     """SSL 상태 요약"""
+    total_websites: int = Field(..., description="전체 웹사이트 수")
     total_certificates: int = Field(..., description="전체 인증서 수")
     valid_certificates: int = Field(..., description="유효한 인증서 수")
     expired_certificates: int = Field(..., description="만료된 인증서 수")
@@ -103,6 +104,14 @@ async def get_ssl_status_summary(
         filters = []
         if active_only:
             filters.append(Website.is_active == True)
+
+        # 전체 웹사이트 수 조회
+        website_count_query = select(Website.id)
+        if filters:
+            website_count_query = website_count_query.where(and_(*filters))
+
+        website_result = await session.execute(website_count_query)
+        total_websites = len(website_result.all())
 
         # 전체 인증서 수 조회
         count_query = select(SSLCertificate.id).join(Website, Website.id == SSLCertificate.website_id)
@@ -164,6 +173,7 @@ async def get_ssl_status_summary(
         last_check_time = latest_check_result.scalar_one_or_none()
 
         return SSLStatusSummary(
+            total_websites=total_websites,
             total_certificates=total_certificates,
             valid_certificates=status_counts.get("valid", 0),
             expired_certificates=status_counts.get("expired", 0),

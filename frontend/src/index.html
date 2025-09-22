@@ -452,7 +452,7 @@
                 const summary = await window.SSLMonitorAPI.ssl.getStatusSummary();
 
                 // 요약 정보 업데이트
-                document.getElementById('total-websites').textContent = summary.total_certificates || 0;
+                document.getElementById('total-websites').textContent = summary.total_websites || 0;
                 document.getElementById('valid-certificates').textContent = summary.valid_certificates || 0;
                 document.getElementById('expired-certificates').textContent = summary.expired_certificates || 0;
                 document.getElementById('expiring-soon').textContent = summary.expiring_in_7_days || 0;
