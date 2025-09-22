@@ -6,6 +6,7 @@
 
 import asyncio
 import uuid
+import hashlib
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 import logging
@@ -113,9 +114,9 @@ class WebsiteService:
             }
 
         except SSLCheckError as e:
-            # SSL 체크 실패 시 오류 상태로 저장
+            # SSL 체크 실패 시 오류 상태로 저장 (동기 세션 사용으로 greenlet 문제 해결)
             error_message = str(e)
-            ssl_certificate = await self._save_ssl_error(website, error_message)
+            ssl_certificate = await self._save_ssl_certificate_error_sync(website, error_message)
 
             logger.warning(f"SSL 체크 실패: {website.url} - {error_message}")
 
@@ -190,7 +191,7 @@ class WebsiteService:
                 serial_number="Error",
                 issued_date=datetime.utcnow(),
                 expiry_date=datetime.utcnow(),  # 임시값
-                fingerprint=f"error_{website.id}_{int(datetime.utcnow().timestamp())}",
+                fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
                 status=SSLStatus.INVALID
             )
 
@@ -392,7 +393,7 @@ class WebsiteService:
                         serial_number="ERROR",
                         issued_date=datetime.utcnow(),
                         expiry_date=datetime.utcnow(),
-                        fingerprint=f"error_{website.id}_{int(datetime.utcnow().timestamp())}",
+                        fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
                         status=SSLStatus.ERROR,
                         error_message=error_message
                     )
@@ -546,7 +547,7 @@ class WebsiteService:
                 serial_number="ERROR",
                 issued_date=datetime.utcnow(),
                 expiry_date=datetime.utcnow(),
-                fingerprint="ERROR",
+                fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
                 status=SSLStatus.ERROR,
                 error_message=error_message
             )

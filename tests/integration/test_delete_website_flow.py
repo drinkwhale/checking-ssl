@@ -11,8 +11,8 @@ import pytest
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.website import Website
-from src.models.ssl_certificate import SSLCertificate
+from backend.src.models.website import Website
+from backend.src.models.ssl_certificate import SSLCertificate
 
 
 class TestDeleteWebsiteFlow:
@@ -38,10 +38,11 @@ class TestDeleteWebsiteFlow:
         assert response.status_code == 204
 
         # And: 웹사이트가 데이터베이스에서 삭제됨
+        db_session.expire_all()  # 세션 캐시 무효화
         deleted_website = await db_session.get(Website, website_id)
         assert deleted_website is None
 
-        # And: 관련 SSL 인증서도 함께 삭제됨 (CASCADE)
+        # And: 관련 SSL 인증서도 함께 삭제됨
         deleted_ssl_cert = await db_session.get(SSLCertificate, ssl_cert_id)
         assert deleted_ssl_cert is None
 

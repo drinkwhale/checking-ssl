@@ -39,6 +39,7 @@ class SSLStatus(Enum):
     INVALID = "invalid"  # 유효하지 않은 인증서
     EXPIRED = "expired"  # 만료된 인증서
     REVOKED = "revoked"  # 폐기된 인증서
+    ERROR = "error"  # SSL 체크 오류
     UNKNOWN = "unknown"  # 상태 불명
 
 
@@ -127,6 +128,12 @@ class SSLCertificate(Base):
         index=True,  # 배치 처리 최적화
     )
 
+    # 오류 메시지 (SSL 체크 실패 시)
+    error_message: Mapped[Optional[str]] = mapped_column(
+        String(1024),
+        nullable=True,
+    )
+
     # 레코드 생성 시간
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -151,6 +158,7 @@ class SSLCertificate(Base):
         expiry_date: datetime,
         fingerprint: str,
         status: SSLStatus = SSLStatus.UNKNOWN,
+        error_message: Optional[str] = None,
     ):
         """SSL Certificate 인스턴스 초기화
 
@@ -163,6 +171,7 @@ class SSLCertificate(Base):
             expiry_date: 만료일
             fingerprint: 지문
             status: 상태
+            error_message: 오류 메시지 (SSL 체크 실패 시)
         """
         self.website_id = website_id
         self.issuer = issuer
@@ -172,6 +181,7 @@ class SSLCertificate(Base):
         self.expiry_date = expiry_date
         self.fingerprint = fingerprint
         self.status = status
+        self.error_message = error_message
         self.last_checked = datetime.utcnow()
 
     @validates("expiry_date")

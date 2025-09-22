@@ -11,8 +11,8 @@ import pytest
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.website import Website
-from src.models.ssl_certificate import SSLCertificate
+from backend.src.models.website import Website
+from backend.src.models.ssl_certificate import SSLCertificate
 
 
 class TestAddWebsiteFlow:
@@ -32,27 +32,37 @@ class TestAddWebsiteFlow:
         # When: 웹사이트 추가 API 호출
         response = await async_client.post("/api/websites", json=website_data)
 
+        # Debug: 응답 내용 확인
+        if response.status_code != 201:
+            print(f"응답 상태: {response.status_code}")
+            print(f"응답 내용: {response.text}")
+            print(f"응답 헤더: {response.headers}")
+
         # Then: 성공 응답 확인
         assert response.status_code == 201
         created_website = response.json()
-        assert created_website["url"] == website_data["url"]
-        assert created_website["name"] == website_data["name"]
-        assert created_website["is_active"] is True
+
+        # Debug: 응답 구조 확인
+        print(f"응답 구조: {created_website}")
+
+        # 응답 구조에 맞게 검증
+        assert created_website["website"]["url"] == website_data["url"]
+        assert created_website["website"]["name"] == website_data["name"]
+        assert created_website["website"]["is_active"] is True
 
         # And: 데이터베이스에 웹사이트가 저장됨
-        website_id = created_website["id"]
+        website_id = created_website["website"]["id"]
         website = await db_session.get(Website, website_id)
         assert website is not None
         assert website.url == website_data["url"]
 
         # And: SSL 인증서 정보가 자동으로 생성됨
-        ssl_cert = await db_session.execute(
-            "SELECT * FROM ssl_certificates WHERE website_id = :website_id",
-            {"website_id": website_id},
-        )
-        ssl_record = ssl_cert.first()
+        from sqlalchemy import select
+        ssl_stmt = select(SSLCertificate).where(SSLCertificate.website_id == website_id)
+        ssl_result = await db_session.execute(ssl_stmt)
+        ssl_record = ssl_result.scalar_one_or_none()
         assert ssl_record is not None
-        assert ssl_record.status in ["valid", "invalid", "expired"]
+        assert ssl_record.status.value in ["valid", "invalid", "expired"]
         assert ssl_record.expiry_date is not None
 
     @pytest.mark.asyncio
@@ -115,14 +125,13 @@ class TestAddWebsiteFlow:
         created_website = response.json()
 
         # And: SSL 인증서 상태가 unknown 또는 invalid로 설정됨
-        website_id = created_website["id"]
-        ssl_cert = await db_session.execute(
-            "SELECT * FROM ssl_certificates WHERE website_id = :website_id",
-            {"website_id": website_id},
-        )
-        ssl_record = ssl_cert.first()
+        website_id = created_website["website"]["id"]
+        from sqlalchemy import select
+        ssl_stmt = select(SSLCertificate).where(SSLCertificate.website_id == website_id)
+        ssl_result = await db_session.execute(ssl_stmt)
+        ssl_record = ssl_result.scalar_one_or_none()
         assert ssl_record is not None
-        assert ssl_record.status in ["unknown", "invalid"]
+        assert ssl_record.status.value in ["unknown", "invalid", "error"]
 
     @pytest.mark.asyncio
     async def test_add_website_auto_ssl_check_performance(
@@ -163,13 +172,12 @@ class TestAddWebsiteFlow:
         # Then: 성공적으로 추가됨
         assert response.status_code == 201
         created_website = response.json()
-        assert created_website["url"] == website_data["url"]
+        assert created_website["website"]["url"] == website_data["url"]
 
         # And: SSL 인증서 정보가 생성됨
-        website_id = created_website["id"]
-        ssl_cert = await db_session.execute(
-            "SELECT * FROM ssl_certificates WHERE website_id = :website_id",
-            {"website_id": website_id},
-        )
-        ssl_record = ssl_cert.first()
+        website_id = created_website["website"]["id"]
+        from sqlalchemy import select
+        ssl_stmt = select(SSLCertificate).where(SSLCertificate.website_id == website_id)
+        ssl_result = await db_session.execute(ssl_stmt)
+        ssl_record = ssl_result.scalar_one_or_none()
         assert ssl_record is not None
