@@ -279,7 +279,6 @@ class WebsitesAPI {
     async create(data) {
         try {
             const result = await this.client.post('/websites', data);
-            this.client.showSuccess('웹사이트가 성공적으로 추가되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
@@ -293,7 +292,6 @@ class WebsitesAPI {
     async update(websiteId, data) {
         try {
             const result = await this.client.put(`/websites/${websiteId}`, data);
-            this.client.showSuccess('웹사이트 정보가 업데이트되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
@@ -307,7 +305,6 @@ class WebsitesAPI {
     async delete(websiteId) {
         try {
             const result = await this.client.delete(`/websites/${websiteId}`);
-            this.client.showSuccess('웹사이트가 삭제되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
@@ -321,7 +318,6 @@ class WebsitesAPI {
     async sslCheck(websiteId) {
         try {
             const result = await this.client.post(`/websites/${websiteId}/ssl-check`);
-            this.client.showSuccess('SSL 체크가 완료되었습니다');
             return result;
         } catch (error) {
             // 410 Gone 상태의 경우 특별 처리 (삭제된 웹사이트)
@@ -341,7 +337,6 @@ class WebsitesAPI {
     async bulkCheck(data = {}) {
         try {
             const result = await this.client.post('/websites/batch-ssl-check', data);
-            this.client.showSuccess('일괄 SSL 체크가 시작되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
@@ -551,7 +546,6 @@ class TasksAPI {
     async triggerScheduledJob(jobId) {
         try {
             const result = await this.client.post('/tasks/scheduler/trigger', { job_id: jobId });
-            this.client.showSuccess('작업이 실행되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
@@ -565,7 +559,6 @@ class TasksAPI {
     async submitSSLCheck(data = {}) {
         try {
             const result = await this.client.post('/tasks/background/ssl-check', data);
-            this.client.showSuccess('SSL 체크 작업이 제출되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
@@ -579,7 +572,6 @@ class TasksAPI {
     async submitNotification(data = {}) {
         try {
             const result = await this.client.post('/tasks/background/notifications', data);
-            this.client.showSuccess('알림 작업이 제출되었습니다');
             return result;
         } catch (error) {
             this.client.handleError(error);
