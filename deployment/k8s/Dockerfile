@@ -13,13 +13,13 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Python 의존성 파일 복사
-COPY requirements.txt .
+COPY backend/requirements.txt .
 
 # Python 의존성 설치
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
-COPY src/ ./src/
+COPY backend/src/ ./src/
 
 # 환경 변수 설정
 ENV PYTHONPATH=/app

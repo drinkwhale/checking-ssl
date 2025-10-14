@@ -317,7 +317,7 @@ def run_dev_server():
     uvicorn.run(
         "backend.src.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=8080,
         reload=True,
         log_level="info",
         access_log=True

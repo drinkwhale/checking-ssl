@@ -158,6 +158,7 @@ logs/
 # Kubernetes
 *.yaml.bak
 *.yml.bak
+deployment/k8s/secret.yaml
 
 # SSL certificates (temporary files)
 *.pem
