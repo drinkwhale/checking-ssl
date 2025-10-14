@@ -24,7 +24,7 @@ dependencies = [
     # 데이터베이스 ORM 및 드라이버
     "sqlalchemy==2.0.23",
     "alembic==1.13.0",
-    "aiosqlite==0.19.0", # SQLite 개발환경용
+    "aiosqlite>=0.21.0", # SQLite 개발환경용
     # 스케줄러
     "apscheduler==3.10.4",
     # SSL 인증서 처리
