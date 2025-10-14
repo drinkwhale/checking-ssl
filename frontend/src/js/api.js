@@ -35,6 +35,7 @@ class SSLMonitorAPI {
         this.ssl = new SSLAPI(this);
         this.health = new HealthAPI(this);
         this.tasks = new TasksAPI(this);
+        this.settings = new SettingsAPI(this);
 
         this.initialized = true;
         console.log('SSL Monitor API 클라이언트가 초기화되었습니다');
@@ -609,6 +610,54 @@ class TasksAPI {
     async getExecutorStats() {
         try {
             return await this.client.get('/tasks/background/stats');
+        } catch (error) {
+            this.client.handleError(error);
+            throw error;
+        }
+    }
+}
+
+/**
+ * 설정 관리 API
+ */
+class SettingsAPI {
+    constructor(client) {
+        this.client = client;
+    }
+
+    /**
+     * 시스템 설정 조회
+     */
+    async get() {
+        try {
+            return await this.client.get('/settings');
+        } catch (error) {
+            this.client.handleError(error);
+            throw error;
+        }
+    }
+
+    /**
+     * 시스템 설정 업데이트
+     */
+    async update(data) {
+        try {
+            const result = await this.client.put('/settings', data);
+            return result;
+        } catch (error) {
+            this.client.handleError(error);
+            throw error;
+        }
+    }
+
+    /**
+     * Webhook 테스트
+     */
+    async testWebhook(webhookUrl = null) {
+        try {
+            const data = webhookUrl ? { webhook_url: webhookUrl } : {};
+            const result = await this.client.post('/settings/test-webhook', data);
+            return result;
         } catch (error) {
             this.client.handleError(error);
             throw error;

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>설정 - SSL Certificate Monitor</title>
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23059669'><path d='M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z'/></svg>">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- 커스텀 스타일 -->
+    <style>
+        /* 스크롤바 스타일링 */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* 로딩 애니메이션 */
+        .loading-spinner {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 페이드인 애니메이션 */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- 네비게이션 헤더 -->
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <a href="/" class="flex items-center">
+                            <svg class="w-8 h-8 text-green-600 mr-3" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+                            </svg>
+                            <h1 class="text-xl font-semibold text-gray-900">SSL Certificate Monitor</h1>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-4">
+                    <a href="/" class="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                        </svg>
+                        대시보드
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 메인 컨텐츠 -->
+    <main class="max-w-4xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+        <!-- 페이지 헤더 -->
+        <div class="mb-8">
+            <h2 class="text-2xl font-bold text-gray-900">시스템 설정</h2>
+            <p class="mt-1 text-sm text-gray-500">SSL 인증서 모니터링 시스템의 전역 설정을 관리합니다.</p>
+        </div>
+
+        <!-- 로딩 상태 -->
+        <div id="loading-state" class="bg-white shadow sm:rounded-lg p-8 text-center">
+            <svg class="loading-spinner w-8 h-8 text-green-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <p class="text-gray-500">설정을 불러오는 중...</p>
+        </div>
+
+        <!-- 설정 폼 -->
+        <div id="settings-form-container" class="hidden">
+            <form id="settings-form" class="space-y-6">
+                <!-- Webhook 설정 -->
+                <div class="bg-white shadow sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Webhook 설정</h3>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label for="webhook-url" class="block text-sm font-medium text-gray-700">
+                                    Webhook URL
+                                </label>
+                                <input type="url" id="webhook-url" name="webhook_url"
+                                       placeholder="https://your-webhook-url.com/webhook"
+                                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-2 text-sm text-gray-500">
+                                    Microsoft Teams 또는 Power Automate Webhook URL을 입력하세요.
+                                </p>
+                            </div>
+
+                            <div class="flex items-center space-x-4">
+                                <button type="button" id="test-webhook-btn"
+                                        class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                    </svg>
+                                    테스트 발송
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 알림 설정 -->
+                <div class="bg-white shadow sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">알림 설정</h3>
+
+                        <div class="space-y-4">
+                            <div class="flex items-center">
+                                <input type="checkbox" id="notification-enabled" name="notification_enabled"
+                                       class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded">
+                                <label for="notification-enabled" class="ml-2 block text-sm text-gray-900">
+                                    알림 활성화
+                                </label>
+                            </div>
+
+                            <div>
+                                <label for="notification-days-before" class="block text-sm font-medium text-gray-700">
+                                    알림 발송 일수 (쉼표로 구분)
+                                </label>
+                                <input type="text" id="notification-days-before" name="notification_days_before"
+                                       placeholder="30,7,1"
+                                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-2 text-sm text-gray-500">
+                                    인증서 만료 며칠 전에 알림을 보낼지 설정합니다. 예: 30,7,1 (30일, 7일, 1일 전)
+                                </p>
+                            </div>
+
+                            <div>
+                                <label for="notification-language" class="block text-sm font-medium text-gray-700">
+                                    알림 언어
+                                </label>
+                                <select id="notification-language" name="notification_language"
+                                        class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm rounded-md">
+                                    <option value="ko">한국어 (Korean)</option>
+                                    <option value="en">영어 (English)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label for="dashboard-url" class="block text-sm font-medium text-gray-700">
+                                    대시보드 URL (선택)
+                                </label>
+                                <input type="url" id="dashboard-url" name="dashboard_url"
+                                       placeholder="https://ssl-monitor.example.com"
+                                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-2 text-sm text-gray-500">
+                                    알림에 포함할 대시보드 URL을 설정합니다.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SSL 체크 설정 -->
+                <div class="bg-white shadow sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">SSL 체크 설정</h3>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label for="ssl-timeout-seconds" class="block text-sm font-medium text-gray-700">
+                                    타임아웃 (초)
+                                </label>
+                                <input type="number" id="ssl-timeout-seconds" name="ssl_timeout_seconds"
+                                       min="1" max="60" value="10"
+                                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-2 text-sm text-gray-500">
+                                    SSL 체크 시 최대 대기 시간 (1-60초)
+                                </p>
+                            </div>
+
+                            <div>
+                                <label for="max-concurrent-checks" class="block text-sm font-medium text-gray-700">
+                                    최대 동시 체크 수
+                                </label>
+                                <input type="number" id="max-concurrent-checks" name="max_concurrent_checks"
+                                       min="1" max="20" value="5"
+                                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                <p class="mt-2 text-sm text-gray-500">
+                                    일괄 SSL 체크 시 동시에 실행할 최대 작업 수 (1-20개)
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 저장 버튼 -->
+                <div class="flex justify-end space-x-3">
+                    <button type="button" id="reset-btn"
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        초기화
+                    </button>
+                    <button type="submit" id="save-btn"
+                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                        저장
+                    </button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <!-- 토스트 알림 -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2">
+        <!-- 동적으로 생성됨 -->
+    </div>
+
+    <!-- JavaScript -->
+    <script src="/js/api.js?v=20250917-2"></script>
+    <script>
+        // 설정 데이터
+        let currentSettings = null;
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                if (typeof SSLMonitorAPI !== 'undefined') {
+                    if (!window.SSLMonitorAPI || typeof window.SSLMonitorAPI.init !== 'function') {
+                        window.SSLMonitorAPI = new SSLMonitorAPI();
+                    }
+                    window.SSLMonitorAPI.init();
+                    loadSettings();
+                    setupEventListeners();
+                } else {
+                    console.error('SSLMonitorAPI 클래스를 찾을 수 없습니다');
+                    showToast('API 클라이언트를 로드할 수 없습니다', 'error');
+                }
+            }, 500);
+        });
+
+        // 이벤트 리스너 설정
+        function setupEventListeners() {
+            document.getElementById('settings-form').addEventListener('submit', handleSaveSettings);
+            document.getElementById('reset-btn').addEventListener('click', loadSettings);
+            document.getElementById('test-webhook-btn').addEventListener('click', handleTestWebhook);
+        }
+
+        // 설정 로드
+        async function loadSettings() {
+            const loadingState = document.getElementById('loading-state');
+            const formContainer = document.getElementById('settings-form-container');
+
+            loadingState.classList.remove('hidden');
+            formContainer.classList.add('hidden');
+
+            try {
+                const settings = await window.SSLMonitorAPI.settings.get();
+                currentSettings = settings;
+                populateForm(settings);
+
+                loadingState.classList.add('hidden');
+                formContainer.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('설정 로드 실패:', error);
+                showToast('설정을 불러올 수 없습니다', 'error');
+            }
+        }
+
+        // 폼 채우기
+        function populateForm(settings) {
+            document.getElementById('webhook-url').value = settings.webhook_url || '';
+            document.getElementById('notification-enabled').checked = settings.notification_enabled;
+            document.getElementById('notification-days-before').value = settings.notification_days_before || '30,7,1';
+            document.getElementById('notification-language').value = settings.notification_language || 'ko';
+            document.getElementById('dashboard-url').value = settings.dashboard_url || '';
+            document.getElementById('ssl-timeout-seconds').value = settings.ssl_timeout_seconds || 10;
+            document.getElementById('max-concurrent-checks').value = settings.max_concurrent_checks || 5;
+        }
+
+        // 설정 저장
+        async function handleSaveSettings(e) {
+            e.preventDefault();
+
+            const formData = new FormData(e.target);
+            const updates = {
+                webhook_url: formData.get('webhook_url') || null,
+                notification_enabled: formData.get('notification_enabled') === 'on',
+                notification_days_before: formData.get('notification_days_before'),
+                notification_language: formData.get('notification_language'),
+                dashboard_url: formData.get('dashboard_url') || null,
+                ssl_timeout_seconds: parseInt(formData.get('ssl_timeout_seconds')),
+                max_concurrent_checks: parseInt(formData.get('max_concurrent_checks'))
+            };
+
+            const saveBtn = document.getElementById('save-btn');
+            const originalText = saveBtn.textContent;
+
+            try {
+                saveBtn.disabled = true;
+                saveBtn.textContent = '저장 중...';
+
+                await window.SSLMonitorAPI.settings.update(updates);
+
+                showToast('설정이 성공적으로 저장되었습니다', 'success');
+                await loadSettings();
+
+            } catch (error) {
+                console.error('설정 저장 실패:', error);
+                showToast('설정 저장에 실패했습니다', 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.textContent = originalText;
+            }
+        }
+
+        // Webhook 테스트
+        async function handleTestWebhook() {
+            const webhookUrl = document.getElementById('webhook-url').value;
+
+            if (!webhookUrl) {
+                showToast('Webhook URL을 입력하세요', 'warning');
+                return;
+            }
+
+            const testBtn = document.getElementById('test-webhook-btn');
+            const originalText = testBtn.textContent;
+
+            try {
+                testBtn.disabled = true;
+                testBtn.textContent = '발송 중...';
+
+                await window.SSLMonitorAPI.settings.testWebhook(webhookUrl);
+
+                showToast('테스트 메시지가 성공적으로 발송되었습니다', 'success');
+
+            } catch (error) {
+                console.error('Webhook 테스트 실패:', error);
+                showToast('Webhook 테스트에 실패했습니다', 'error');
+            } finally {
+                testBtn.disabled = false;
+                testBtn.textContent = originalText;
+            }
+        }
+
+        // 토스트 알림 표시
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toastId = 'toast-' + Date.now();
+
+            const bgColor = {
+                'success': 'bg-green-500',
+                'error': 'bg-red-500',
+                'warning': 'bg-yellow-500',
+                'info': 'bg-blue-500'
+            }[type] || 'bg-gray-500';
+
+            const toast = document.createElement('div');
+            toast.id = toastId;
+            toast.className = `${bgColor} text-white px-4 py-3 rounded-md shadow-lg transform transition-all duration-300 translate-x-full`;
+            toast.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span>${message}</span>
+                    <button onclick="removeToast('${toastId}')" class="ml-3 text-white hover:text-gray-200">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            `;
+
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.remove('translate-x-full');
+            }, 10);
+
+            setTimeout(() => {
+                removeToast(toastId);
+            }, 5000);
+        }
+
+        // 토스트 제거
+        function removeToast(toastId) {
+            const toast = document.getElementById(toastId);
+            if (toast) {
+                toast.classList.add('translate-x-full');
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -19,7 +19,7 @@ import uvicorn
 try:
     # 패키지로 실행될 때 (python -m backend.src.main)
     from .database import init_db, close_db
-    from .api import websites, ssl, health, tasks
+    from .api import websites, ssl, health, tasks, settings
     from .scheduler import start_scheduler, stop_scheduler
     from .background import start_background_executor, stop_background_executor
 except ImportError:
@@ -29,7 +29,7 @@ except ImportError:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
     from database import init_db, close_db
-    from api import websites, ssl, health, tasks
+    from api import websites, ssl, health, tasks, settings
     from scheduler import start_scheduler, stop_scheduler
     from background import start_background_executor, stop_background_executor
 
@@ -128,6 +128,7 @@ app.include_router(websites.router)
 app.include_router(ssl.router)
 app.include_router(health.router)
 app.include_router(tasks.router)
+app.include_router(settings.router)
 
 
 # 전역 예외 처리
@@ -236,6 +237,25 @@ async def root():
         }
 
 
+# 설정 페이지 엔드포인트
+@app.get("/settings.html")
+async def settings_page():
+    """설정 페이지 제공"""
+    try:
+        import os
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        settings_path = os.path.join(project_root, "frontend", "src", "settings.html")
+
+        if os.path.exists(settings_path):
+            return FileResponse(settings_path)
+        else:
+            raise HTTPException(status_code=404, detail="Settings page not found")
+    except Exception as e:
+        logger.warning(f"설정 페이지 서빙 실패: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # API 정보 엔드포인트
 @app.get("/api")
 async def api_info():
@@ -249,6 +269,7 @@ async def api_info():
             "ssl": "/api/ssl",
             "health": "/api/health",
             "tasks": "/api/tasks",
+            "settings": "/api/settings",
             "documentation": "/api/docs"
         },
         "features": [

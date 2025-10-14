@@ -7,7 +7,7 @@ name = "ssl-checker"
 version = "1.0.0"
 description = "SSL Certificate Monitoring Dashboard"
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.11,<3.14"
 authors = [{name = "SSL Checker Team"}]
 license = {text = "MIT"}
 classifiers = [
