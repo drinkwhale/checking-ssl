@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  labels:
+    app: postgresql
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  # storageClassName을 지정하지 않으면 클러스터의 기본 StorageClass 사용
+  # 필요시 아래 주석을 해제하고 사용
+  # storageClassName: standard

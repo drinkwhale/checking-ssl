@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ssl-monitoring-ingress
+  labels:
+    app: ssl-monitoring
+  annotations:
+    # NGINX Ingress Controller 사용 시 설정
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # 요청 크기 제한 (기본: 1m, 필요시 증가)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # 타임아웃 설정
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+    # CORS 설정 (필요시 활성화)
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+
+    # TLS/SSL 인증서 자동 발급 (cert-manager 사용 시)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ssl-monitoring.example.com  # 실제 도메인으로 변경하세요
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ssl-monitoring
+            port:
+              number: 80
+  # TLS 설정 (HTTPS 사용 시)
+  tls:
+  - hosts:
+    - ssl-monitoring.example.com  # 실제 도메인으로 변경하세요
+    secretName: ssl-monitoring-tls

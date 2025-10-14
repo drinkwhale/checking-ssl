@@ -159,6 +159,7 @@ logs/
 *.yaml.bak
 *.yml.bak
 deployment/k8s/secret.yaml
+deployment/k8s/postgresql-secret.yaml
 
 # SSL certificates (temporary files)
 *.pem

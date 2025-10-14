@@ -30,45 +30,101 @@ docker push your-registry.com/ssl-monitoring:latest
 
 ## 배포 방법
 
-### 1. Secret 설정
+### 1. PostgreSQL Secret 설정
+
+```bash
+# PostgreSQL secret 파일 생성
+cp deployment/k8s/postgresql-secret.yaml.example deployment/k8s/postgresql-secret.yaml
+
+# PostgreSQL 비밀번호 수정
+vim deployment/k8s/postgresql-secret.yaml
+
+# Secret 생성
+kubectl apply -f deployment/k8s/postgresql-secret.yaml
+```
+
+### 2. PostgreSQL PVC 및 Deployment 배포
+
+```bash
+# PersistentVolumeClaim 생성
+kubectl apply -f deployment/k8s/postgresql-pvc.yaml
+
+# PostgreSQL Deployment 및 Service 생성
+kubectl apply -f deployment/k8s/postgresql-deployment.yaml
+
+# PostgreSQL Pod 상태 확인
+kubectl get pods -l app=postgresql
+kubectl logs -l app=postgresql
+```
+
+### 3. 애플리케이션 Secret 설정
 
 ```bash
 # secret.yaml.example 파일을 복사하여 실제 값 입력
 cp deployment/k8s/secret.yaml.example deployment/k8s/secret.yaml
 
-# secret.yaml 파일 편집 (데이터베이스 URL, Teams 웹훅 URL 등)
+# secret.yaml 파일 편집
+# database-url을 다음과 같이 설정:
+# postgresql+asyncpg://ssl_monitor_user:your-password@postgresql:5432/ssl_monitoring
 vim deployment/k8s/secret.yaml
 
 # Secret 생성
 kubectl apply -f deployment/k8s/secret.yaml
 ```
 
-### 2. Deployment 생성
+### 4. 애플리케이션 Deployment 생성
 
 ```bash
 kubectl apply -f deployment/k8s/deployment.yaml
 ```
 
-### 3. Service 생성
+### 5. Service 생성
 
 ```bash
 kubectl apply -f deployment/k8s/service.yaml
 ```
 
-### 4. 배포 상태 확인
+### 6. Ingress 설정 (외부 접근용)
 
 ```bash
-# Pod 상태 확인
+# ingress.yaml 파일에서 도메인 수정
+vim deployment/k8s/ingress.yaml
+
+# Ingress 생성
+kubectl apply -f deployment/k8s/ingress.yaml
+
+# Ingress 상태 확인
+kubectl get ingress ssl-monitoring-ingress
+kubectl describe ingress ssl-monitoring-ingress
+```
+
+### 7. 배포 상태 확인
+
+```bash
+# 모든 리소스 상태 확인
+kubectl get all
+
+# PostgreSQL Pod 상태 확인
+kubectl get pods -l app=postgresql
+kubectl logs -l app=postgresql
+
+# 애플리케이션 Pod 상태 확인
 kubectl get pods -l app=ssl-monitoring
+kubectl logs -l app=ssl-monitoring --tail=100 -f
 
 # Deployment 상태 확인
 kubectl get deployment ssl-monitoring
+kubectl get deployment postgresql
 
 # Service 상태 확인
 kubectl get service ssl-monitoring
+kubectl get service postgresql
 
-# Pod 로그 확인
-kubectl logs -l app=ssl-monitoring --tail=100 -f
+# Ingress 상태 확인
+kubectl get ingress ssl-monitoring-ingress
+
+# PVC 상태 확인
+kubectl get pvc postgres-pvc
 ```
 
 ## 리소스 구성
@@ -98,29 +154,84 @@ kubectl logs -l app=ssl-monitoring --tail=100 -f
 - **포트 매핑**: 80 (외부) → 8080 (컨테이너)
 - **selector**: `app=ssl-monitoring` 레이블을 가진 Pod에 트래픽 전달
 
+### PostgreSQL Deployment (`postgresql-deployment.yaml`)
+
+- **replicas**: 1개 (단일 인스턴스)
+- **컨테이너 포트**: 5432
+- **이미지**: postgres:15-alpine
+- **환경 변수**:
+  - `POSTGRES_DB`: ssl_monitoring (데이터베이스 이름)
+  - `POSTGRES_USER`: Secret에서 주입
+  - `POSTGRES_PASSWORD`: Secret에서 주입
+- **스토리지**: 10Gi PersistentVolumeClaim
+- **리소스 제한**:
+  - **requests**: CPU 250m, Memory 256Mi
+  - **limits**: CPU 500m, Memory 512Mi
+
+### Ingress (`ingress.yaml`)
+
+- **ingressClassName**: nginx (NGINX Ingress Controller 사용)
+- **호스트**: ssl-monitoring.example.com (실제 도메인으로 변경 필요)
+- **TLS**: 인증서 Secret 설정 (cert-manager 사용 권장)
+- **annotations**:
+  - SSL 리다이렉트 활성화
+  - 프록시 타임아웃 설정
+  - CORS 설정 (주석 처리됨, 필요시 활성화)
+
+## 데이터베이스 연결 설정
+
+애플리케이션은 다음 형식의 DATABASE_URL을 사용합니다:
+
+```
+postgresql+asyncpg://username:password@postgresql:5432/ssl_monitoring
+```
+
+**중요 포인트**:
+- 호스트명은 `postgresql` (Kubernetes Service 이름)
+- 포트는 `5432` (PostgreSQL 기본 포트)
+- 데이터베이스명은 `ssl_monitoring`
+- username과 password는 `postgresql-secrets`에서 설정
+
 ## 외부 접근 설정
 
-### Option 1: Ingress 사용 (권장)
+### Ingress 사용 (권장)
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+이미 `ingress.yaml` 파일이 제공됩니다. 다음 사항을 수정하세요:
+
+1. **도메인 설정**: `ssl-monitoring.example.com`을 실제 도메인으로 변경
+2. **Ingress Controller 설치** (NGINX 예시):
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml
+```
+
+3. **TLS 인증서 설정** (cert-manager 사용 시):
+```bash
+# cert-manager 설치
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+# ClusterIssuer 생성 (Let's Encrypt)
+kubectl apply -f - <<EOF
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
 metadata:
-  name: ssl-monitoring-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
+  name: letsencrypt-prod
 spec:
-  rules:
-  - host: ssl-monitoring.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: ssl-monitoring
-            port:
-              number: 80
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: your-email@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+EOF
+```
+
+4. **DNS 설정**: 도메인의 A 레코드를 Ingress Controller의 외부 IP로 설정
+```bash
+# Ingress Controller의 외부 IP 확인
+kubectl get svc -n ingress-nginx
 ```
 
 ### Option 2: LoadBalancer 타입으로 변경
