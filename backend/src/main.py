@@ -6,6 +6,7 @@ SSL Certificate Monitoring Dashboard의 메인 웹 애플리케이션입니다.
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
@@ -15,6 +16,9 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
+
+# Uvicorn ProxyHeaders 미들웨어 import (프록시 뒤에서 실행될 때 필요)
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 try:
     # 패키지로 실행될 때 (python -m backend.src.main)
@@ -96,14 +100,16 @@ app = FastAPI(
 )
 
 
+# ProxyHeaders 미들웨어 설정 (가장 먼저 추가해야 함)
+# OpenShift Route/Kubernetes Ingress 뒤에서 실행될 때 X-Forwarded-* 헤더 인식
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+
 # CORS 미들웨어 설정
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,https://ssl-monitoring-checking-ssl.d3.clouz.io,https://postgresql-checking-ssl.d3.clouz.io").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # 개발용 프론트엔드
-        "http://localhost:8080",  # 개발용 프론트엔드 대안
-        "https://ssl-monitor.example.com",  # 프로덕션 도메인 (예시)
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -111,15 +117,12 @@ app.add_middleware(
 
 
 # 신뢰할 수 있는 호스트 미들웨어
+# 참고: Kubernetes 환경에서는 내부 Service 통신을 위해 "*" 허용 필요
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
+
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=[
-        "localhost",
-        "127.0.0.1",
-        "0.0.0.0",
-        "ssl-monitor.example.com",  # 프로덕션 도메인 (예시)
-        "*.ssl-monitor.example.com",  # 서브도메인 허용 (예시)
-    ]
+    allowed_hosts=ALLOWED_HOSTS if ALLOWED_HOSTS != ["*"] else ["*"],
 )
 
 
@@ -207,10 +210,20 @@ async def root():
         import os
         # 프로젝트 루트 디렉토리 찾기
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        # backend/src에서 프로젝트 루트로 이동
-        project_root = os.path.dirname(os.path.dirname(current_dir))
+
+        # Docker 환경: /app/src/main.py -> /app
+        # 로컬 환경: backend/src/main.py -> project_root
+        if current_dir.startswith("/app/src"):
+            # Docker 컨테이너 환경
+            project_root = "/app"
+        else:
+            # 로컬 개발 환경
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+
         frontend_path = os.path.join(project_root, "frontend", "src", "index.html")
 
+        logger.info(f"현재 디렉토리: {current_dir}")
+        logger.info(f"프로젝트 루트: {project_root}")
         logger.info(f"프론트엔드 파일 경로: {frontend_path}")
 
         if os.path.exists(frontend_path):
@@ -223,7 +236,13 @@ async def root():
                 "status": "running",
                 "docs_url": "/api/docs",
                 "health_check": "/api/health",
-                "note": "Frontend dashboard not found"
+                "note": "Frontend dashboard not found",
+                "debug": {
+                    "current_dir": current_dir,
+                    "project_root": project_root,
+                    "frontend_path": frontend_path,
+                    "exists": os.path.exists(frontend_path)
+                }
             }
     except Exception as e:
         logger.warning(f"프론트엔드 파일 서빙 실패: {e}")
@@ -244,8 +263,16 @@ async def settings_page():
     try:
         import os
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(os.path.dirname(current_dir))
+
+        # Docker 환경 vs 로컬 환경 구분
+        if current_dir.startswith("/app/src"):
+            project_root = "/app"
+        else:
+            project_root = os.path.dirname(os.path.dirname(current_dir))
+
         settings_path = os.path.join(project_root, "frontend", "src", "settings.html")
+
+        logger.info(f"설정 페이지 경로: {settings_path}")
 
         if os.path.exists(settings_path):
             return FileResponse(settings_path)
@@ -290,7 +317,13 @@ try:
     import os
     # 프로젝트 루트 디렉토리 찾기
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(current_dir))
+
+    # Docker 환경 vs 로컬 환경 구분
+    if current_dir.startswith("/app/src"):
+        project_root = "/app"
+    else:
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+
     frontend_path = os.path.join(project_root, "frontend", "src")
 
     if os.path.exists(frontend_path):
@@ -298,13 +331,15 @@ try:
         js_path = os.path.join(frontend_path, "js")
         if os.path.exists(js_path):
             app.mount("/js", StaticFiles(directory=js_path), name="js")
+            logger.info(f"JavaScript 파일 서빙 설정: {js_path}")
 
         css_path = os.path.join(frontend_path, "css")
         if os.path.exists(css_path):
             app.mount("/css", StaticFiles(directory=css_path), name="css")
+            logger.info(f"CSS 파일 서빙 설정: {css_path}")
 
         app.mount("/static", StaticFiles(directory=frontend_path), name="static")
-        logger.info(f"정적 파일 서빙 설정: {frontend_path}")
+        logger.info(f"정적 파일 서빙 설정 완료: {frontend_path}")
     else:
         logger.warning(f"프론트엔드 디렉토리를 찾을 수 없음: {frontend_path}")
 except Exception as e:
