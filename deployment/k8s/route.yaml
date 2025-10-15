@@ -1,0 +1,86 @@
+# OpenShift Route 설정
+# OpenShift 환경에서 외부 트래픽을 애플리케이션으로 라우팅합니다.
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ssl-monitoring
+  labels:
+    app: ssl-monitoring
+  annotations:
+    # Route 설명
+    description: "SSL Certificate Monitoring Dashboard"
+    # HSTS (HTTP Strict Transport Security) 활성화
+    haproxy.router.openshift.io/hsts_header: "max-age=31536000;includeSubDomains;preload"
+spec:
+  # 호스트명 (비워두면 OpenShift가 자동으로 생성)
+  # 형식: <route-name>-<namespace>.<cluster-domain>
+  host: ssl-monitoring-checking-ssl.d3.clouz.io
+
+  # TLS 설정 (HTTPS)
+  tls:
+    # TLS 종료 방식
+    # - edge: Route에서 TLS 종료 (가장 일반적)
+    # - passthrough: 백엔드에서 TLS 종료
+    # - reencrypt: Route와 백엔드 모두 TLS 사용
+    termination: edge
+
+    # HTTP를 HTTPS로 리다이렉트
+    insecureEdgeTerminationPolicy: Allow
+
+    # 사용자 정의 인증서 (선택사항)
+    # certificate: |
+    #   -----BEGIN CERTIFICATE-----
+    #   ...
+    #   -----END CERTIFICATE-----
+    # key: |
+    #   -----BEGIN PRIVATE KEY-----
+    #   ...
+    #   -----END PRIVATE KEY-----
+    # caCertificate: |
+    #   -----BEGIN CERTIFICATE-----
+    #   ...
+    #   -----END CERTIFICATE-----
+
+  # 백엔드 서비스 설정
+  to:
+    kind: Service
+    name: ssl-monitoring
+    weight: 100
+
+  # 포트 설정
+  port:
+    targetPort: http
+
+  # 와일드카드 정책 (None 또는 Subdomain)
+  wildcardPolicy: None
+
+---
+# PostgreSQL Admin Route (선택사항 - 개발/디버깅용)
+# 주의: 프로덕션 환경에서는 보안상 비활성화 권장
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: postgresql-admin
+  labels:
+    app: postgresql
+  annotations:
+    description: "PostgreSQL Admin Access (개발용)"
+    # 특정 IP에서만 접근 허용 (선택사항)
+    # haproxy.router.openshift.io/ip_whitelist: "192.168.1.0/24"
+spec:
+  host: postgresql-admin.d3.clouz.io
+
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect
+
+  to:
+    kind: Service
+    name: postgresql
+    weight: 100
+
+  port:
+    targetPort: postgres
+
+  wildcardPolicy: None

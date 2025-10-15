@@ -28,6 +28,12 @@ spec:
             secretKeyRef:
               name: ssl-monitoring-secrets
               key: database-url
+        - name: APP_URL
+          value: "https://ssl-monitoring-checking-ssl.d3.clouz.io"
+        - name: ALLOWED_HOSTS
+          value: "*"
+        - name: CORS_ORIGINS
+          value: "http://localhost:3000,http://localhost:8080,https://ssl-monitoring-checking-ssl.d3.clouz.io,https://postgresql-checking-ssl.d3.clouz.io"
         - name: TEAMS_WEBHOOK_URL
           valueFrom:
             secretKeyRef:
@@ -51,7 +57,7 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /api/health/liveness
             port: 8080
           initialDelaySeconds: 15
           periodSeconds: 20
@@ -59,7 +65,7 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /api/health/readiness
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 10
@@ -67,10 +73,9 @@ spec:
           failureThreshold: 3
         startupProbe:
           httpGet:
-            path: /health
+            path: /api/health/liveness
             port: 8080
           initialDelaySeconds: 0
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 30
-      restartPolicy: Always

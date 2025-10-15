@@ -4,12 +4,14 @@ FROM python:3.11-alpine
 # 작업 디렉토리 설정
 WORKDIR /app
 
-# 시스템 의존성 설치 (SSL 인증서 처리를 위해)
+# 시스템 의존성 설치 (SSL 인증서 처리 및 PostgreSQL용)
 RUN apk add --no-cache \
     build-base \
     libffi-dev \
     openssl-dev \
     curl \
+    postgresql-dev \
+    postgresql-libs \
     && rm -rf /var/cache/apk/*
 
 # Python 의존성 파일 복사
@@ -20,6 +22,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
 COPY backend/src/ ./src/
+
+# 프론트엔드 파일 복사 (정적 파일 서빙용)
+COPY frontend/ ./frontend/
 
 # 환경 변수 설정
 ENV PYTHONPATH=/app

@@ -26,7 +26,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-  - host: ssl-monitoring.example.com  # 실제 도메인으로 변경하세요
+  - host: postgresql-checking-ssl.d3.clouz.io
     http:
       paths:
       - path: /
@@ -39,5 +39,5 @@ spec:
   # TLS 설정 (HTTPS 사용 시)
   tls:
   - hosts:
-    - ssl-monitoring.example.com  # 실제 도메인으로 변경하세요
+    - postgresql-checking-ssl.d3.clouz.io
     secretName: ssl-monitoring-tls
