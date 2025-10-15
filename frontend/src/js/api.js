@@ -205,14 +205,16 @@ class SSLMonitorAPI {
 
     // HTTP 메서드 헬퍼
     async get(endpoint, params = {}) {
-        const url = new URL(endpoint, `${this.baseURL}${this.apiPrefix}`);
-        Object.keys(params).forEach(key => {
-            if (params[key] !== null && params[key] !== undefined) {
-                url.searchParams.append(key, params[key]);
-            }
-        });
+        // 쿼리 파라미터 문자열 생성
+        const queryString = Object.keys(params)
+            .filter(key => params[key] !== null && params[key] !== undefined)
+            .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+            .join('&');
 
-        return this.request('GET', url.pathname + url.search);
+        // 엔드포인트에 쿼리 문자열 추가
+        const fullEndpoint = queryString ? `${endpoint}?${queryString}` : endpoint;
+
+        return this.request('GET', fullEndpoint);
     }
 
     async post(endpoint, data = {}) {
@@ -279,7 +281,8 @@ class WebsitesAPI {
      */
     async create(data) {
         try {
-            const result = await this.client.post('/websites', data);
+            // trailing slash 포함하여 307 리다이렉트 방지
+            const result = await this.client.post('/websites/', data);
             return result;
         } catch (error) {
             this.client.handleError(error);
