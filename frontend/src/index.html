@@ -370,7 +370,7 @@
     </div>
 
     <!-- JavaScript 파일 로드 -->
-    <script src="/js/api.js?v=20250917-2"></script>
+    <script src="/js/api.js?v=20251015-1"></script>
     <script>
         // 페이지 로드 시 초기화
         document.addEventListener('DOMContentLoaded', function() {
@@ -656,11 +656,26 @@
                 submitBtn.disabled = true;
                 submitBtn.textContent = '추가 중...';
 
-                await window.SSLMonitorAPI.websites.create(websiteData);
+                const result = await window.SSLMonitorAPI.websites.create(websiteData);
 
                 showToast('웹사이트가 성공적으로 추가되었습니다', 'success');
                 closeAddWebsiteModal();
-                loadDashboardData();
+
+                // 즉시 목록 새로고침
+                await loadDashboardData();
+
+                // auto_check_ssl이 true면 자동으로 SSL 체크 수행
+                if (websiteData.auto_check_ssl && result.website?.id) {
+                    setTimeout(async () => {
+                        try {
+                            await window.SSLMonitorAPI.websites.sslCheck(result.website.id);
+                            await loadDashboardData();
+                            showToast('SSL 체크가 완료되었습니다', 'success');
+                        } catch (error) {
+                            console.error('자동 SSL 체크 실패:', error);
+                        }
+                    }, 500);
+                }
 
             } catch (error) {
                 console.error('웹사이트 추가 실패:', error);
@@ -705,7 +720,14 @@
 
             } catch (error) {
                 console.error('상세 정보 로드 실패:', error);
-                showToast('상세 정보를 불러올 수 없습니다', 'error');
+
+                // 404 오류인 경우 목록 새로고침
+                if (error.status === 404) {
+                    showToast('해당 웹사이트가 삭제되었습니다. 목록을 새로고침합니다.', 'warning');
+                    loadDashboardData();
+                } else {
+                    showToast('상세 정보를 불러올 수 없습니다', 'error');
+                }
             }
         }
 
@@ -794,15 +816,35 @@
                 return;
             }
 
+            // UI에서 즉시 제거 (Optimistic UI Update)
+            const websiteItem = document.querySelector(`[data-website-id="${websiteId}"]`);
+            if (websiteItem) {
+                websiteItem.style.opacity = '0.5';
+                websiteItem.style.pointerEvents = 'none';
+            }
+
             try {
                 await window.SSLMonitorAPI.websites.delete(websiteId);
 
+                // UI에서 완전히 제거
+                if (websiteItem) {
+                    websiteItem.remove();
+                }
+
                 showToast('웹사이트가 삭제되었습니다', 'success');
+
+                // 백그라운드에서 목록 새로고침
                 loadDashboardData();
 
             } catch (error) {
                 console.error('웹사이트 삭제 실패:', error);
                 showToast('웹사이트 삭제에 실패했습니다', 'error');
+
+                // 실패 시 UI 복원
+                if (websiteItem) {
+                    websiteItem.style.opacity = '1';
+                    websiteItem.style.pointerEvents = 'auto';
+                }
             }
         }
 
