@@ -627,7 +627,7 @@ class WebsiteService:
             return None
 
     async def manual_ssl_check(self, website_id: uuid.UUID) -> Dict[str, Any]:
-        """수동 SSL 체크 수행 (동기 세션 사용 - greenlet 문제 해결)
+        """수동 SSL 체크 수행
 
         Args:
             website_id: 웹사이트 ID
@@ -638,8 +638,8 @@ class WebsiteService:
         try:
             logger.info(f"수동 SSL 체크 시작: {website_id}")
 
-            # 동기 세션으로 웹사이트 조회 (greenlet 문제 해결용)
-            website = await self._get_website_by_id_sync(website_id)
+            # 비동기 세션으로 웹사이트 조회 (동일한 트랜잭션 컨텍스트 사용)
+            website = await self.website_manager.get_website_by_id(website_id)
             if not website:
                 # 방어적 처리: 삭제된 웹사이트에 대한 요청을 조용히 처리
                 logger.warning(f"수동 SSL 체크 요청된 웹사이트가 존재하지 않음 (삭제됨): {website_id}")
@@ -654,8 +654,8 @@ class WebsiteService:
                 ssl_cert_result = await ssl_checker.check_ssl_certificate(website.url)
                 logger.info(f"SSL 인증서 수집 완료: {website.url}")
 
-                # SSL 인증서 정보 저장 (동기 방식으로 greenlet 문제 회피)
-                ssl_certificate = await self._save_ssl_certificate_info_sync(
+                # SSL 인증서 정보 저장 (비동기 세션 사용)
+                ssl_certificate = await self._save_ssl_certificate_info(
                     website, ssl_cert_result
                 )
                 logger.info(f"SSL 인증서 저장 완료: {website.url}")
