@@ -169,18 +169,33 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
-# 요청/응답 로깅 미들웨어
+# 요청/응답 로깅 및 리다이렉트 수정 미들웨어
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """요청/응답 로깅"""
+    """요청/응답 로깅 및 HTTPS 리다이렉트 처리"""
     start_time = asyncio.get_event_loop().time()
 
+    # 프록시 헤더 확인
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    forwarded_host = request.headers.get("x-forwarded-host", "")
+
     # 요청 로깅
-    logger.info(f"요청 시작: {request.method} {request.url.path}")
+    logger.info(f"요청 시작: {request.method} {request.url.path} (Proto: {forwarded_proto}, Host: {forwarded_host})")
 
     try:
         response = await call_next(request)
         process_time = asyncio.get_event_loop().time() - start_time
+
+        # 307 리다이렉트의 경우 Location 헤더를 HTTPS로 수정
+        if response.status_code == 307 and "location" in response.headers:
+            location = response.headers["location"]
+
+            # X-Forwarded-Proto가 https이거나, 알려진 HTTPS 도메인인 경우
+            if forwarded_proto == "https" or "ssl-monitoring-checking-ssl.d3.clouz.io" in location:
+                if location.startswith("http://"):
+                    new_location = location.replace("http://", "https://", 1)
+                    response.headers["location"] = new_location
+                    logger.info(f"리다이렉트 URL 수정: {location} -> {new_location}")
 
         # 응답 로깅
         logger.info(
