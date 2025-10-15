@@ -703,7 +703,22 @@
 
             } catch (error) {
                 console.error('SSL 체크 실패:', error);
-                showToast('SSL 체크에 실패했습니다', 'error');
+
+                // 410 Gone (삭제됨) 또는 404 오류인 경우
+                if (error.status === 410 || error.status === 404) {
+                    showToast('해당 웹사이트가 삭제되었습니다. 목록을 새로고침합니다.', 'warning');
+
+                    // UI에서 즉시 제거
+                    const websiteItem = document.querySelector(`[data-website-id="${websiteId}"]`);
+                    if (websiteItem) {
+                        websiteItem.remove();
+                    }
+
+                    // 목록 새로고침
+                    loadDashboardData();
+                } else {
+                    showToast('SSL 체크에 실패했습니다', 'error');
+                }
             } finally {
                 icon.classList.remove('loading-spinner');
                 btn.disabled = false;
