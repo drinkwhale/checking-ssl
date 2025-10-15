@@ -664,15 +664,18 @@
                 // 즉시 목록 새로고침
                 await loadDashboardData();
 
-                // auto_check_ssl이 true면 자동으로 SSL 체크 수행
-                if (websiteData.auto_check_ssl && result.website?.id) {
+                // 자동으로 SSL 체크 수행 (사용자 경험 개선)
+                if (result.website?.id) {
+                    showToast('SSL 인증서 정보를 확인하는 중입니다...', 'info');
+
                     setTimeout(async () => {
                         try {
                             await window.SSLMonitorAPI.websites.sslCheck(result.website.id);
                             await loadDashboardData();
-                            showToast('SSL 체크가 완료되었습니다', 'success');
+                            showToast('SSL 인증서 정보가 확인되었습니다', 'success');
                         } catch (error) {
                             console.error('자동 SSL 체크 실패:', error);
+                            showToast('SSL 인증서 확인에 실패했습니다. 수동으로 다시 시도해주세요.', 'warning');
                         }
                     }, 500);
                 }
