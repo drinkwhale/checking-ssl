@@ -13,12 +13,31 @@ from typing import Dict, Any
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 # Uvicorn ProxyHeaders 미들웨어 import (프록시 뒤에서 실행될 때 필요)
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+
+# 캐시 제어가 가능한 커스텀 StaticFiles 클래스
+class NoCacheStaticFiles(StaticFiles):
+    """
+    정적 파일 서빙 시 캐시를 비활성화하는 커스텀 클래스
+    개발 중에는 항상 최신 파일을 제공하도록 설정
+    """
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        # 개발 환경: 캐시 비활성화
+        # 운영 환경: 짧은 캐시 시간 설정 (5분)
+        if os.getenv("ENVIRONMENT", "development") == "production":
+            response.headers["Cache-Control"] = "public, max-age=300"  # 5분
+        else:
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
 try:
     # 패키지로 실행될 때 (python -m backend.src.main)
@@ -242,7 +261,15 @@ async def root():
         logger.info(f"프론트엔드 파일 경로: {frontend_path}")
 
         if os.path.exists(frontend_path):
-            return FileResponse(frontend_path)
+            # HTML 파일에 캐시 제어 헤더 추가
+            response = FileResponse(frontend_path)
+            if os.getenv("ENVIRONMENT", "development") == "production":
+                response.headers["Cache-Control"] = "public, max-age=300"
+            else:
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+            return response
         else:
             # 프론트엔드 파일이 없는 경우 API 정보 반환
             return {
@@ -290,7 +317,15 @@ async def settings_page():
         logger.info(f"설정 페이지 경로: {settings_path}")
 
         if os.path.exists(settings_path):
-            return FileResponse(settings_path)
+            # HTML 파일에 캐시 제어 헤더 추가
+            response = FileResponse(settings_path)
+            if os.getenv("ENVIRONMENT", "development") == "production":
+                response.headers["Cache-Control"] = "public, max-age=300"
+            else:
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+            return response
         else:
             raise HTTPException(status_code=404, detail="Settings page not found")
     except Exception as e:
@@ -342,19 +377,19 @@ try:
     frontend_path = os.path.join(project_root, "frontend", "src")
 
     if os.path.exists(frontend_path):
-        # JavaScript, CSS 등 정적 파일을 위한 마운트
+        # JavaScript, CSS 등 정적 파일을 위한 마운트 (캐시 제어 적용)
         js_path = os.path.join(frontend_path, "js")
         if os.path.exists(js_path):
-            app.mount("/js", StaticFiles(directory=js_path), name="js")
-            logger.info(f"JavaScript 파일 서빙 설정: {js_path}")
+            app.mount("/js", NoCacheStaticFiles(directory=js_path), name="js")
+            logger.info(f"JavaScript 파일 서빙 설정 (캐시 제어): {js_path}")
 
         css_path = os.path.join(frontend_path, "css")
         if os.path.exists(css_path):
-            app.mount("/css", StaticFiles(directory=css_path), name="css")
-            logger.info(f"CSS 파일 서빙 설정: {css_path}")
+            app.mount("/css", NoCacheStaticFiles(directory=css_path), name="css")
+            logger.info(f"CSS 파일 서빙 설정 (캐시 제어): {css_path}")
 
-        app.mount("/static", StaticFiles(directory=frontend_path), name="static")
-        logger.info(f"정적 파일 서빙 설정 완료: {frontend_path}")
+        app.mount("/static", NoCacheStaticFiles(directory=frontend_path), name="static")
+        logger.info(f"정적 파일 서빙 설정 완료 (캐시 제어): {frontend_path}")
     else:
         logger.warning(f"프론트엔드 디렉토리를 찾을 수 없음: {frontend_path}")
 except Exception as e:
