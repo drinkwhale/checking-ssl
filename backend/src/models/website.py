@@ -135,7 +135,7 @@ class Website(Base):
             url: 검증할 URL
 
         Returns:
-            검증된 URL
+            검증된 URL (https:// 자동 추가됨)
 
         Raises:
             ValueError: URL이 유효하지 않은 경우
@@ -143,8 +143,16 @@ class Website(Base):
         if not url:
             raise ValueError("URL은 필수입니다")
 
-        if not url.startswith("https://"):
-            raise ValueError("HTTPS URL만 허용됩니다")
+        # 공백 제거
+        url = url.strip()
+
+        # https:// 자동 추가 (http:// 또는 https://가 없는 경우)
+        if not url.startswith("https://") and not url.startswith("http://"):
+            url = "https://" + url
+
+        # http://로 시작하는 경우 https://로 변경
+        if url.startswith("http://"):
+            url = url.replace("http://", "https://", 1)
 
         try:
             parsed = urlparse(url)
