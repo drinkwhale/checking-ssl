@@ -71,6 +71,12 @@ class WebhookTestRequest(BaseModel):
     webhook_url: Optional[str] = Field(None, description="테스트할 웹훅 URL (없으면 설정된 URL 사용)")
 
 
+class NotificationTestWithDaysRequest(BaseModel):
+    """특정 일수 기준 알림 테스트 요청 모델"""
+    days: int = Field(..., ge=1, le=365, description="만료까지 남은 일수 (1-365)")
+    webhook_url: Optional[str] = Field(None, description="테스트할 웹훅 URL (없으면 설정된 URL 사용)")
+
+
 # API 엔드포인트
 @router.get("", response_model=SettingsResponse)
 async def get_settings(
@@ -170,3 +176,57 @@ async def test_webhook(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Webhook 테스트 실패: {str(e)}")
+
+
+@router.post("/test-notification-with-days")
+async def test_notification_with_days(
+    request: NotificationTestWithDaysRequest,
+    session: AsyncSession = Depends(get_async_session)
+):
+    """
+    특정 일수 기준 실제 데이터 알림 테스트
+
+    현재 남은 일수가 지정된 일수인 실제 인증서를 찾아서
+    실제 알림 형식으로 테스트 메시지를 발송합니다.
+
+    예: 57일 남은 인증서가 있다면 days=57로 설정하여 테스트
+    """
+    try:
+        from ..lib.notification_service import NotificationService
+
+        # Webhook URL 결정 (요청에 있으면 우선, 없으면 설정에서 가져오기)
+        webhook_url = request.webhook_url
+        if not webhook_url:
+            manager = SettingsManager(session)
+            webhook_url = await manager.get_webhook_url()
+
+        if not webhook_url:
+            raise HTTPException(
+                status_code=400,
+                detail="Webhook URL이 설정되지 않았습니다"
+            )
+
+        # 알림 서비스 초기화 및 테스트
+        notification_service = NotificationService(
+            session=session,
+            webhook_url=webhook_url
+        )
+
+        result = await notification_service.test_expiry_notification_with_days(request.days)
+
+        if result.get("success"):
+            return result
+        else:
+            # 인증서가 없는 경우도 성공으로 처리 (200)
+            if result.get("certificates_found") == 0:
+                return result
+            # 실제 오류인 경우만 HTTP 에러
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("error", "알림 발송에 실패했습니다")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"알림 테스트 실패: {str(e)}")

@@ -666,6 +666,23 @@ class SettingsAPI {
             throw error;
         }
     }
+
+    /**
+     * 특정 일수 기준 실제 데이터 알림 테스트
+     */
+    async testNotificationWithDays(days, webhookUrl = null) {
+        try {
+            const data = {
+                days: days,
+                webhook_url: webhookUrl || null
+            };
+            const result = await this.client.post('/settings/test-notification-with-days', data);
+            return result;
+        } catch (error) {
+            this.client.handleError(error);
+            throw error;
+        }
+    }
 }
 
 /**

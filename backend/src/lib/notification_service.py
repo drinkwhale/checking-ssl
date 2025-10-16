@@ -678,6 +678,85 @@ class NotificationService:
 
         return await self._send_teams_message(test_message)
 
+    async def test_expiry_notification_with_days(self, days: int) -> Dict[str, Any]:
+        """특정 일수 기준으로 실제 데이터로 테스트 알림 발송
+
+        현재 남은 일수가 정확히 지정된 일수인 인증서들을 찾아서
+        실제 알림 메시지 형식으로 테스트 발송합니다.
+
+        Args:
+            days: 만료까지 남은 일수
+
+        Returns:
+            발송 결과 딕셔너리
+        """
+        # DB 설정 로드
+        await self._load_settings_from_db()
+
+        if not self.webhook_url:
+            logger.error("Teams 웹훅 URL이 설정되지 않았습니다")
+            return {
+                "success": False,
+                "error": "Teams 웹훅 URL이 설정되지 않았습니다"
+            }
+
+        try:
+            # 지정된 일수에 해당하는 인증서 조회
+            target_date = datetime.now(timezone.utc) + timedelta(days=days)
+            start_date = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+            result = await self.session.execute(
+                select(Website, SSLCertificate)
+                .join(SSLCertificate, Website.id == SSLCertificate.website_id)
+                .where(
+                    and_(
+                        Website.is_active == True,
+                        SSLCertificate.status == SSLStatus.VALID,
+                        SSLCertificate.expiry_date >= start_date,
+                        SSLCertificate.expiry_date <= end_date
+                    )
+                )
+                .order_by(SSLCertificate.expiry_date)
+            )
+
+            certificates = [(website, cert) for website, cert in result.all()]
+
+            if not certificates:
+                logger.info(f"테스트: {days}일 후 만료되는 인증서가 없습니다")
+                return {
+                    "success": False,
+                    "message": f"{days}일 후 만료되는 인증서가 없습니다",
+                    "certificates_found": 0
+                }
+
+            # 실제 알림 메시지 생성 및 발송
+            message = self._create_expiry_message(certificates, days)
+            success = await self._send_teams_message(message)
+
+            return {
+                "success": success,
+                "message": f"테스트 알림 발송 {'성공' if success else '실패'}",
+                "certificates_found": len(certificates),
+                "test_days": days,
+                "certificates": [
+                    {
+                        "website_name": website.name,
+                        "url": website.url,
+                        "expiry_date": cert.expiry_date.isoformat(),
+                        "days_remaining": days
+                    }
+                    for website, cert in certificates
+                ]
+            }
+
+        except Exception as e:
+            logger.error(f"테스트 알림 발송 실패: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
 
 # CLI 인터페이스
 async def main():

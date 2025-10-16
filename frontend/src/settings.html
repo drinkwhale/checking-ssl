@@ -118,7 +118,7 @@
                                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                                     </svg>
-                                    테스트 발송
+                                    간단 테스트
                                 </button>
                             </div>
                         </div>
@@ -171,6 +171,33 @@
                                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
                                 <p class="mt-2 text-sm text-gray-500">
                                     알림에 포함할 대시보드 URL을 설정합니다.
+                                </p>
+                            </div>
+
+                            <!-- 실제 데이터 기반 테스트 알림 -->
+                            <div class="border-t border-gray-200 pt-4">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    실제 데이터 테스트 알림
+                                </label>
+                                <p class="text-sm text-gray-500 mb-3">
+                                    현재 등록된 인증서 중 특정 일수에 해당하는 인증서로 실제 알림을 테스트합니다.
+                                </p>
+                                <div class="flex items-center space-x-3">
+                                    <input type="number" id="test-days-input"
+                                           placeholder="57"
+                                           min="1" max="365"
+                                           class="w-24 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500 sm:text-sm">
+                                    <span class="text-sm text-gray-600">일 후 만료 인증서로 테스트</span>
+                                    <button type="button" id="test-notification-with-days-btn"
+                                            class="inline-flex items-center px-4 py-2 border border-green-600 rounded-md shadow-sm text-sm font-medium text-green-700 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                                        <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+                                        </svg>
+                                        실제 데이터로 테스트
+                                    </button>
+                                </div>
+                                <p class="mt-2 text-xs text-gray-500">
+                                    💡 예: 57일 남은 인증서가 있다면 57을 입력하고 테스트하세요.
                                 </p>
                             </div>
                         </div>
@@ -258,6 +285,7 @@
             document.getElementById('settings-form').addEventListener('submit', handleSaveSettings);
             document.getElementById('reset-btn').addEventListener('click', loadSettings);
             document.getElementById('test-webhook-btn').addEventListener('click', handleTestWebhook);
+            document.getElementById('test-notification-with-days-btn').addEventListener('click', handleTestNotificationWithDays);
         }
 
         // 설정 로드
@@ -339,11 +367,16 @@
             }
 
             const testBtn = document.getElementById('test-webhook-btn');
-            const originalText = testBtn.textContent;
+            const originalText = testBtn.innerHTML;
 
             try {
                 testBtn.disabled = true;
-                testBtn.textContent = '발송 중...';
+                testBtn.innerHTML = `
+                    <svg class="w-4 h-4 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    발송 중...
+                `;
 
                 await window.SSLMonitorAPI.settings.testWebhook(webhookUrl);
 
@@ -354,7 +387,61 @@
                 showToast('Webhook 테스트에 실패했습니다', 'error');
             } finally {
                 testBtn.disabled = false;
-                testBtn.textContent = originalText;
+                testBtn.innerHTML = originalText;
+            }
+        }
+
+        // 특정 일수 기준 테스트 알림
+        async function handleTestNotificationWithDays() {
+            const webhookUrl = document.getElementById('webhook-url').value;
+            const daysInput = document.getElementById('test-days-input');
+            const days = parseInt(daysInput.value);
+
+            if (!webhookUrl) {
+                showToast('Webhook URL을 먼저 입력하세요', 'warning');
+                return;
+            }
+
+            if (!days || days < 1 || days > 365) {
+                showToast('1-365 사이의 일수를 입력하세요', 'warning');
+                daysInput.focus();
+                return;
+            }
+
+            const testBtn = document.getElementById('test-notification-with-days-btn');
+            const originalText = testBtn.innerHTML;
+
+            try {
+                testBtn.disabled = true;
+                testBtn.innerHTML = `
+                    <svg class="w-4 h-4 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                    테스트 중...
+                `;
+
+                const response = await window.SSLMonitorAPI.settings.testNotificationWithDays(days, webhookUrl);
+
+                if (response.success) {
+                    const certCount = response.certificates_found || 0;
+                    showToast(`✅ 테스트 알림 발송 성공! (${certCount}개 인증서 발견)`, 'success');
+
+                    // 발견된 인증서 정보 표시
+                    if (response.certificates && response.certificates.length > 0) {
+                        console.log('발견된 인증서:', response.certificates);
+                    }
+                } else if (response.certificates_found === 0) {
+                    showToast(`${days}일 후 만료되는 인증서가 없습니다`, 'info');
+                } else {
+                    showToast(response.message || '테스트 알림 발송에 실패했습니다', 'error');
+                }
+
+            } catch (error) {
+                console.error('테스트 알림 실패:', error);
+                showToast('테스트 알림에 실패했습니다', 'error');
+            } finally {
+                testBtn.disabled = false;
+                testBtn.innerHTML = originalText;
             }
         }
 
