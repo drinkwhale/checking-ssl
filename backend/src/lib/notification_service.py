@@ -462,6 +462,215 @@ class NotificationService:
 
         return message
 
+    def _create_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
+        """테스트용 만료 알림 메시지 생성 (각 인증서의 정확한 남은 일수 표시)
+
+        Args:
+            certificates_with_days: (웹사이트, SSL인증서, 남은일수) 튜플 목록
+            max_days: 조회 기준 최대 일수
+
+        Returns:
+            Teams 메시지 페이로드
+        """
+        if self.language == "ko":
+            return self._create_korean_test_expiry_message(certificates_with_days, max_days)
+        else:
+            return self._create_english_test_expiry_message(certificates_with_days, max_days)
+
+    def _create_korean_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
+        """한국어 테스트 만료 알림 메시지 생성"""
+        # 최소 남은 일수 확인하여 긴급도 결정
+        min_days = min(days for _, _, days in certificates_with_days)
+
+        if min_days <= 1:
+            urgency = "🚨 긴급"
+            theme_color = "FF0000"  # 빨강
+        elif min_days <= 7:
+            urgency = "⚠️ 주의"
+            theme_color = "FFA500"  # 주황
+        else:
+            urgency = "📢 알림"
+            theme_color = "0078D7"  # 파랑
+
+        # 제목
+        title = f"{urgency} SSL 인증서 만료 알림 (테스트)"
+
+        subtitle = f"{max_days}일 이하 남은 SSL 인증서 {len(certificates_with_days)}개가 곧 만료됩니다."
+
+        # 인증서 목록을 Facts로 구성 (각 인증서별 정확한 남은 일수 표시)
+        facts = []
+        for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
+            issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
+
+            # 도메인 정보 및 남은 일수
+            days_text = f"{days_remaining}일 남음" if days_remaining > 1 else "내일 만료!"
+            facts.append({
+                "name": f"[{idx}] {website.name}",
+                "value": f"{website.url} - **{days_text}**"
+            })
+            facts.append({
+                "name": "만료일",
+                "value": cert.expiry_date.strftime('%Y년 %m월 %d일 %H:%M')
+            })
+            facts.append({
+                "name": "발급자",
+                "value": issuer
+            })
+
+        # MessageCard 형식으로 구성
+        message = {
+            "@type": "MessageCard",
+            "@context": "https://schema.org/extensions",
+            "summary": f"SSL 인증서 만료 알림 테스트 ({max_days}일 이하)",
+            "themeColor": theme_color,
+            "title": title,
+            "text": subtitle,
+            "sections": [
+                {
+                    "facts": facts
+                }
+            ]
+        }
+
+        # 대시보드 링크 추가
+        dashboard_url = os.getenv("DASHBOARD_URL", "https://ssl-checker.example.com")
+        if dashboard_url != "https://ssl-checker.example.com":
+            message["potentialAction"] = [
+                {
+                    "@type": "OpenUri",
+                    "name": "SSL 대시보드 확인",
+                    "targets": [
+                        {
+                            "os": "default",
+                            "uri": dashboard_url
+                        }
+                    ]
+                }
+            ]
+
+        # Power Automate 호환성: attachments 배열 추가
+        message["attachments"] = [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "type": "AdaptiveCard",
+                    "version": "1.0",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": title,
+                            "weight": "bolder",
+                            "size": "large"
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": subtitle,
+                            "wrap": True
+                        }
+                    ]
+                }
+            }
+        ]
+
+        return message
+
+    def _create_english_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
+        """영어 테스트 만료 알림 메시지 생성"""
+        # 최소 남은 일수 확인하여 긴급도 결정
+        min_days = min(days for _, _, days in certificates_with_days)
+
+        if min_days <= 1:
+            urgency = "🚨 URGENT"
+            theme_color = "FF0000"  # Red
+        elif min_days <= 7:
+            urgency = "⚠️ WARNING"
+            theme_color = "FFA500"  # Orange
+        else:
+            urgency = "📢 NOTICE"
+            theme_color = "0078D7"  # Blue
+
+        # 제목
+        title = f"{urgency} SSL Certificate Expiry Alert (Test)"
+
+        subtitle = f"{len(certificates_with_days)} SSL certificate(s) with {max_days} days or less will expire soon."
+
+        # 인증서 목록을 Facts로 구성 (각 인증서별 정확한 남은 일수 표시)
+        facts = []
+        for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
+            issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
+
+            # 도메인 정보 및 남은 일수
+            days_text = f"{days_remaining} days left" if days_remaining > 1 else "Expires tomorrow!"
+            facts.append({
+                "name": f"[{idx}] {website.name}",
+                "value": f"{website.url} - **{days_text}**"
+            })
+            facts.append({
+                "name": "Expiry Date",
+                "value": cert.expiry_date.strftime('%Y-%m-%d %H:%M')
+            })
+            facts.append({
+                "name": "Issuer",
+                "value": issuer
+            })
+
+        # MessageCard 형식으로 구성
+        message = {
+            "@type": "MessageCard",
+            "@context": "https://schema.org/extensions",
+            "summary": f"SSL Certificate Expiry Test Alert ({max_days} days or less)",
+            "themeColor": theme_color,
+            "title": title,
+            "text": subtitle,
+            "sections": [
+                {
+                    "facts": facts
+                }
+            ]
+        }
+
+        # 대시보드 링크 추가
+        dashboard_url = os.getenv("DASHBOARD_URL", "https://ssl-checker.example.com")
+        if dashboard_url != "https://ssl-checker.example.com":
+            message["potentialAction"] = [
+                {
+                    "@type": "OpenUri",
+                    "name": "Check SSL Dashboard",
+                    "targets": [
+                        {
+                            "os": "default",
+                            "uri": dashboard_url
+                        }
+                    ]
+                }
+            ]
+
+        # Power Automate 호환성: attachments 배열 추가
+        message["attachments"] = [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "type": "AdaptiveCard",
+                    "version": "1.0",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": title,
+                            "weight": "bolder",
+                            "size": "large"
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": subtitle,
+                            "wrap": True
+                        }
+                    ]
+                }
+            }
+        ]
+
+        return message
+
     async def send_ssl_error_notification(self, website: Website, error_message: str) -> bool:
         """SSL 오류 즉시 알림 발송
 
@@ -681,11 +890,11 @@ class NotificationService:
     async def test_expiry_notification_with_days(self, days: int) -> Dict[str, Any]:
         """특정 일수 기준으로 실제 데이터로 테스트 알림 발송
 
-        현재 남은 일수가 정확히 지정된 일수인 인증서들을 찾아서
+        지정된 일수 이하로 남은 모든 인증서를 찾아서
         실제 알림 메시지 형식으로 테스트 발송합니다.
 
         Args:
-            days: 만료까지 남은 일수
+            days: 만료까지 남은 일수 (이 일수 이하의 모든 인증서 조회)
 
         Returns:
             발송 결과 딕셔너리
@@ -701,10 +910,9 @@ class NotificationService:
             }
 
         try:
-            # 지정된 일수에 해당하는 인증서 조회
-            target_date = datetime.now(timezone.utc) + timedelta(days=days)
-            start_date = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            # 지정된 일수 이하로 남은 인증서 조회
+            now = datetime.now(timezone.utc)
+            max_expiry_date = now + timedelta(days=days)
 
             result = await self.session.execute(
                 select(Website, SSLCertificate)
@@ -713,40 +921,44 @@ class NotificationService:
                     and_(
                         Website.is_active == True,
                         SSLCertificate.status == SSLStatus.VALID,
-                        SSLCertificate.expiry_date >= start_date,
-                        SSLCertificate.expiry_date <= end_date
+                        SSLCertificate.expiry_date >= now,
+                        SSLCertificate.expiry_date <= max_expiry_date
                     )
                 )
                 .order_by(SSLCertificate.expiry_date)
             )
 
-            certificates = [(website, cert) for website, cert in result.all()]
+            # 각 인증서의 정확한 남은 일수 계산
+            certificates_with_days = []
+            for website, cert in result.all():
+                days_remaining = (cert.expiry_date - now).days
+                certificates_with_days.append((website, cert, days_remaining))
 
-            if not certificates:
-                logger.info(f"테스트: {days}일 후 만료되는 인증서가 없습니다")
+            if not certificates_with_days:
+                logger.info(f"테스트: {days}일 이하로 남은 인증서가 없습니다")
                 return {
                     "success": False,
-                    "message": f"{days}일 후 만료되는 인증서가 없습니다",
+                    "message": f"{days}일 이하로 남은 인증서가 없습니다",
                     "certificates_found": 0
                 }
 
-            # 실제 알림 메시지 생성 및 발송
-            message = self._create_expiry_message(certificates, days)
+            # 실제 알림 메시지 생성 및 발송 (각 인증서의 정확한 남은 일수 포함)
+            message = self._create_test_expiry_message(certificates_with_days, days)
             success = await self._send_teams_message(message)
 
             return {
                 "success": success,
                 "message": f"테스트 알림 발송 {'성공' if success else '실패'}",
-                "certificates_found": len(certificates),
+                "certificates_found": len(certificates_with_days),
                 "test_days": days,
                 "certificates": [
                     {
                         "website_name": website.name,
                         "url": website.url,
                         "expiry_date": cert.expiry_date.isoformat(),
-                        "days_remaining": days
+                        "days_remaining": days_remaining
                     }
-                    for website, cert in certificates
+                    for website, cert, days_remaining in certificates_with_days
                 ]
             }
 
