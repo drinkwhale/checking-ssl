@@ -239,7 +239,8 @@ class SSLCertificate(Base):
         Returns:
             만료 여부
         """
-        return datetime.utcnow() > self.expiry_date
+        from datetime import timezone
+        return datetime.now(timezone.utc) > self.expiry_date
 
     def is_expiring_soon(self, days: int = 30) -> bool:
         """인증서가 곧 만료되는지 확인
@@ -250,9 +251,9 @@ class SSLCertificate(Base):
         Returns:
             곧 만료 여부
         """
-        from datetime import timedelta
+        from datetime import timedelta, timezone
 
-        threshold = datetime.utcnow() + timedelta(days=days)
+        threshold = datetime.now(timezone.utc) + timedelta(days=days)
         return self.expiry_date <= threshold
 
     def days_until_expiry(self) -> int:
@@ -261,7 +262,8 @@ class SSLCertificate(Base):
         Returns:
             만료까지 남은 일수 (음수면 이미 만료됨)
         """
-        delta = self.expiry_date - datetime.utcnow()
+        from datetime import timezone
+        delta = self.expiry_date - datetime.now(timezone.utc)
         return delta.days
 
     def update_status_based_on_expiry(self) -> None:
@@ -274,7 +276,8 @@ class SSLCertificate(Base):
 
     def update_check_time(self) -> None:
         """마지막 체크 시간 업데이트"""
-        self.last_checked = datetime.utcnow()
+        from datetime import timezone
+        self.last_checked = datetime.now(timezone.utc)
 
     def get_notification_urgency(self) -> str:
         """알림 긴급도 반환

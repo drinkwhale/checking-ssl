@@ -7,7 +7,7 @@
 import asyncio
 import uuid
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 import logging
 
@@ -130,7 +130,7 @@ class WebsiteService:
         website: Website,
         ssl_result: Dict[str, Any]
     ) -> Optional[SSLCertificate]:
-        """SSL 인증서 정보를 독립적인 세션으로 저장
+        """SSL 인증서 정보를 독립적인 세션으로 저장 (UPSERT)
 
         Args:
             website: 웹사이트 객체
@@ -142,34 +142,60 @@ class WebsiteService:
         try:
             # 독립적인 새 세션 사용
             from ..database import get_async_session_factory
+            from sqlalchemy import select
             async_session_factory = get_async_session_factory()
 
             async with async_session_factory() as session:
                 cert_info = ssl_result["certificate"]
+                fingerprint = cert_info["fingerprint"]
 
                 # 상태 결정
                 status = self._determine_ssl_status(ssl_result)
 
-                # SSL 인증서 객체 생성
-                ssl_certificate = SSLCertificate(
-                    website_id=website.id,
-                    issuer=cert_info["issuer"],
-                    subject=cert_info["subject"],
-                    serial_number=cert_info["serial_number"],
-                    issued_date=cert_info["not_before"],
-                    expiry_date=cert_info["not_after"],
-                    fingerprint=cert_info["fingerprint"],
-                    status=status
+                # 기존 인증서 확인 (fingerprint로 조회)
+                stmt = select(SSLCertificate).where(
+                    SSLCertificate.fingerprint == fingerprint
                 )
+                result = await session.execute(stmt)
+                existing_cert = result.scalar_one_or_none()
 
-                session.add(ssl_certificate)
+                if existing_cert:
+                    # 기존 인증서 업데이트
+                    existing_cert.website_id = website.id
+                    existing_cert.issuer = cert_info["issuer"]
+                    existing_cert.subject = cert_info["subject"]
+                    existing_cert.serial_number = cert_info["serial_number"]
+                    existing_cert.issued_date = cert_info["not_before"]
+                    existing_cert.expiry_date = cert_info["not_after"]
+                    existing_cert.status = status
+                    existing_cert.last_checked = datetime.now(timezone.utc)
+                    existing_cert.error_message = None  # 성공 시 오류 메시지 초기화
+
+                    ssl_certificate = existing_cert
+                    logger.info(f"SSL 인증서 정보 업데이트됨 (독립 세션): {website.url} - {status.value}")
+                else:
+                    # 새 SSL 인증서 생성
+                    ssl_certificate = SSLCertificate(
+                        website_id=website.id,
+                        issuer=cert_info["issuer"],
+                        subject=cert_info["subject"],
+                        serial_number=cert_info["serial_number"],
+                        issued_date=cert_info["not_before"],
+                        expiry_date=cert_info["not_after"],
+                        fingerprint=fingerprint,
+                        status=status
+                    )
+                    session.add(ssl_certificate)
+                    logger.info(f"SSL 인증서 정보 신규 저장됨 (독립 세션): {website.url} - {status.value}")
+
                 await session.commit()
-
-                logger.info(f"SSL 인증서 정보 저장됨 (독립 세션): {website.url} - {status.value}")
+                await session.refresh(ssl_certificate)
                 return ssl_certificate
 
         except Exception as e:
             logger.error(f"SSL 인증서 정보 저장 실패: {website.url} - {str(e)}")
+            import traceback
+            logger.error(f"스택 트레이스: {traceback.format_exc()}")
             return None
 
     async def _save_ssl_error(
@@ -177,7 +203,7 @@ class WebsiteService:
         website: Website,
         error_message: str
     ) -> Optional[SSLCertificate]:
-        """SSL 오류 정보를 독립적인 세션으로 저장
+        """SSL 오류 정보를 독립적인 세션으로 저장 (UPSERT)
 
         Args:
             website: 웹사이트 객체
@@ -189,29 +215,50 @@ class WebsiteService:
         try:
             # 독립적인 새 세션 사용
             from ..database import get_async_session_factory
+            from sqlalchemy import select
             async_session_factory = get_async_session_factory()
 
             async with async_session_factory() as session:
-                # 기본 정보로 SSL 인증서 레코드 생성 (오류 상태)
-                ssl_certificate = SSLCertificate(
-                    website_id=website.id,
-                    issuer="SSL Check Error",
-                    subject=f"CN={website.url}",
-                    serial_number="ERROR",
-                    issued_date=datetime.utcnow(),
-                    expiry_date=datetime.utcnow(),  # 임시값
-                    fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
-                    status=SSLStatus.ERROR
-                )
+                # 해당 웹사이트의 최신 SSL 인증서 조회
+                stmt = select(SSLCertificate).where(
+                    SSLCertificate.website_id == website.id
+                ).order_by(SSLCertificate.created_at.desc()).limit(1)
 
-                session.add(ssl_certificate)
+                result = await session.execute(stmt)
+                existing_cert = result.scalar_one_or_none()
+
+                if existing_cert:
+                    # 기존 인증서를 ERROR 상태로 업데이트
+                    existing_cert.status = SSLStatus.ERROR
+                    existing_cert.last_checked = datetime.now(timezone.utc)
+                    existing_cert.error_message = error_message
+
+                    ssl_certificate = existing_cert
+                    logger.info(f"SSL 오류 정보 업데이트됨 (독립 세션): {website.url} - {error_message}")
+                else:
+                    # 새 오류 레코드 생성 (첫 체크부터 실패한 경우)
+                    ssl_certificate = SSLCertificate(
+                        website_id=website.id,
+                        issuer="SSL Check Error",
+                        subject=f"CN={website.url}",
+                        serial_number="ERROR",
+                        issued_date=datetime.now(timezone.utc),
+                        expiry_date=datetime.now(timezone.utc),  # 임시값
+                        fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.now(timezone.utc).timestamp())}".encode()).hexdigest(),
+                        status=SSLStatus.ERROR,
+                        error_message=error_message
+                    )
+                    session.add(ssl_certificate)
+                    logger.info(f"SSL 오류 정보 신규 저장됨 (독립 세션): {website.url} - {error_message}")
+
                 await session.commit()
-
-                logger.info(f"SSL 오류 정보 저장됨 (독립 세션): {website.url} - {error_message}")
+                await session.refresh(ssl_certificate)
                 return ssl_certificate
 
         except Exception as e:
             logger.error(f"SSL 오류 정보 저장 실패: {website.url} - {str(e)}")
+            import traceback
+            logger.error(f"스택 트레이스: {traceback.format_exc()}")
             return None
 
     async def _save_ssl_certificate_info_isolated(
@@ -247,7 +294,7 @@ class WebsiteService:
 
             if ssl_certificate:
                 # 기존 인증서 업데이트
-                ssl_certificate.last_checked = datetime.utcnow()
+                ssl_certificate.last_checked = datetime.now(timezone.utc)
                 ssl_certificate.status = status
                 logger.info(f"SSL 인증서 정보 업데이트됨 (격리 세션): {website.url} - {status.value}")
             else:
@@ -314,7 +361,7 @@ class WebsiteService:
 
                     if existing_cert:
                         # 기존 인증서 업데이트
-                        existing_cert.last_checked = datetime.utcnow()
+                        existing_cert.last_checked = datetime.now(timezone.utc)
                         existing_cert.status = status
                         ssl_certificate = existing_cert
                         logger.info(f"SSL 인증서 정보 업데이트됨 (동기 세션): {website.url} - {status.value}")
@@ -480,9 +527,9 @@ class WebsiteService:
                 issuer="SSL Error",
                 subject=website.url,
                 serial_number="ERROR",
-                issued_date=datetime.utcnow(),
-                expiry_date=datetime.utcnow(),
-                fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.utcnow().timestamp())}".encode()).hexdigest(),
+                issued_date=datetime.now(timezone.utc),
+                expiry_date=datetime.now(timezone.utc),
+                fingerprint=hashlib.sha256(f"error_{website.id}_{int(datetime.now(timezone.utc).timestamp())}".encode()).hexdigest(),
                 status=SSLStatus.ERROR,
                 error_message=error_message
             )
@@ -605,7 +652,18 @@ class WebsiteService:
         try:
             website = await self.website_manager.get_website_by_id(website_id)
             if not website:
+                logger.warning(f"웹사이트 조회 결과 없음: {website_id}")
                 return None
+
+            # 세션 내에서 웹사이트 데이터 미리 로드 (detached 방지)
+            website_dict = {
+                "id": str(website.id),
+                "url": website.url,
+                "name": website.name,
+                "created_at": website.created_at.isoformat() if website.created_at else None,
+                "updated_at": website.updated_at.isoformat() if website.updated_at else None,
+                "is_active": website.is_active,
+            }
 
             # 최신 SSL 인증서 조회
             from sqlalchemy import select
@@ -617,13 +675,39 @@ class WebsiteService:
             )
             latest_ssl = result.scalar_one_or_none()
 
+            # SSL 인증서 데이터도 세션 내에서 미리 로드
+            ssl_dict = None
+            if latest_ssl:
+                try:
+                    ssl_dict = {
+                        "id": str(latest_ssl.id),
+                        "website_id": str(latest_ssl.website_id),
+                        "issuer": latest_ssl.issuer,
+                        "subject": latest_ssl.subject,
+                        "serial_number": latest_ssl.serial_number,
+                        "issued_date": latest_ssl.issued_date.isoformat() if latest_ssl.issued_date else None,
+                        "expiry_date": latest_ssl.expiry_date.isoformat() if latest_ssl.expiry_date else None,
+                        "fingerprint": latest_ssl.fingerprint,
+                        "status": latest_ssl.status.value if hasattr(latest_ssl.status, 'value') else str(latest_ssl.status),
+                        "last_checked": latest_ssl.last_checked.isoformat() if latest_ssl.last_checked else None,
+                        "created_at": latest_ssl.created_at.isoformat() if latest_ssl.created_at else None,
+                        "days_until_expiry": latest_ssl.days_until_expiry() if hasattr(latest_ssl, 'days_until_expiry') else None,
+                        "is_expired": latest_ssl.is_expired() if hasattr(latest_ssl, 'is_expired') else None,
+                        "notification_urgency": latest_ssl.notification_urgency() if hasattr(latest_ssl, 'notification_urgency') else None,
+                    }
+                except Exception as ssl_error:
+                    logger.error(f"SSL 인증서 데이터 변환 실패: {website_id} - {str(ssl_error)}")
+                    ssl_dict = None
+
             return {
-                "website": website.to_dict(),
-                "ssl_certificate": latest_ssl.to_dict() if latest_ssl else None
+                "website": website_dict,
+                "ssl_certificate": ssl_dict
             }
 
         except Exception as e:
             logger.error(f"웹사이트 SSL 정보 조회 실패: {website_id} - {str(e)}")
+            import traceback
+            logger.error(f"스택 트레이스: {traceback.format_exc()}")
             return None
 
     async def manual_ssl_check(self, website_id: uuid.UUID) -> Dict[str, Any]:
@@ -679,7 +763,7 @@ class WebsiteService:
             result = {
                 "website": website.to_dict(),
                 "manual_check": True,
-                "checked_at": datetime.utcnow().isoformat()
+                "checked_at": datetime.now(timezone.utc).isoformat()
             }
             result.update(ssl_result)
 
@@ -780,7 +864,7 @@ class WebsiteService:
                 "successful_checks": successful_checks,
                 "failed_checks": failed_checks,
                 "results": dict_results,
-                "checked_at": datetime.utcnow().isoformat()
+                "checked_at": datetime.now(timezone.utc).isoformat()
             }
 
             logger.info(f"일괄 SSL 체크 완료: {successful_checks}/{len(websites)} 성공")
@@ -803,7 +887,7 @@ class WebsiteService:
             from sqlalchemy import select, and_
             from datetime import timedelta
 
-            target_date = datetime.utcnow() + timedelta(days=days)
+            target_date = datetime.now(timezone.utc) + timedelta(days=days)
 
             result = await self.session.execute(
                 select(Website, SSLCertificate)
@@ -812,7 +896,7 @@ class WebsiteService:
                     and_(
                         Website.is_active == True,
                         SSLCertificate.expiry_date <= target_date,
-                        SSLCertificate.expiry_date > datetime.utcnow(),
+                        SSLCertificate.expiry_date > datetime.now(timezone.utc),
                         SSLCertificate.status == SSLStatus.VALID
                     )
                 )
@@ -859,7 +943,7 @@ class WebsiteService:
                 status_stats[status.value] = count
 
             # 만료 임박 통계
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             expiry_stats = {}
             for days in [1, 7, 30]:
                 target_date = now + timedelta(days=days)
@@ -882,7 +966,7 @@ class WebsiteService:
                 "active_websites": active_websites,
                 "ssl_status_distribution": status_stats,
                 "expiry_statistics": expiry_stats,
-                "generated_at": datetime.utcnow().isoformat()
+                "generated_at": datetime.now(timezone.utc).isoformat()
             }
 
         except Exception as e:

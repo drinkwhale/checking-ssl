@@ -22,6 +22,8 @@ SSL 인증서의 만료 상태를 자동으로 모니터링하고 Microsoft Team
 - Database: PostgreSQL / SQLite
 - Architecture: Library-First Pattern
 
+![alt text](image.png)
+
 ## 🚀 빠른 시작
 
 **필수 요구사항**: Python 3.11+, uv
@@ -69,12 +71,57 @@ uvicorn backend.src.main:app --host 0.0.0.0 --port 8000 --reload
 # 데이터베이스
 DATABASE_URL=postgresql://user:password@localhost/ssl_monitor
 
-# 알림 (선택사항)
-TEAMS_WEBHOOK_URL=https://your-org.webhook.office.com/...
+# Teams 알림 설정
+TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/your-webhook-url
+NOTIFICATION_ENABLED=true
+NOTIFICATION_DAYS_BEFORE=30,7,1  # 만료 30, 7, 1일 전 알림
+NOTIFICATION_LANGUAGE=ko          # 알림 언어 (ko/en)
+DASHBOARD_URL=https://ssl-checker.example.com  # 알림에 포함될 대시보드 링크
+
+# 스케줄러 설정
+ENABLE_SCHEDULER=true
+SSL_CHECK_CRON=0 9 * * 1  # 매주 월요일 오전 9시
 
 # SSL 체크 설정
 SSL_TIMEOUT_SECONDS=10
 MAX_CONCURRENT_CHECKS=5
+```
+
+### 알림 설정 방법
+
+**1. Teams 웹훅 URL 생성**
+- Teams 채널 → 커넥터 → "Incoming Webhook" 추가
+- 또는 [Power Automate](https://flow.microsoft.com)에서 HTTP 요청 트리거 생성
+
+**2. 알림 발송 일수 설정**
+```env
+NOTIFICATION_DAYS_BEFORE=30,14,7,3,1
+```
+- 설정된 일수에 정확히 해당하는 인증서만 알림 발송
+- 예: 30일 전, 7일 전, 1일 전에 각각 알림
+
+**3. 동적 설정 변경 (API 사용)**
+```bash
+# 설정 조회
+GET /api/settings
+
+# 설정 업데이트 (재시작 없이 즉시 적용)
+PUT /api/settings
+{
+  "webhook_url": "https://outlook.office.com/webhook/...",
+  "notification_enabled": true,
+  "notification_days_before": "30,7,1",
+  "notification_language": "ko"
+}
+```
+
+**4. 알림 테스트**
+```bash
+# CLI로 테스트 알림 발송
+python -m backend.src.lib.notification_service test
+
+# API로 테스트
+POST /api/notifications/test
 ```
 
 ## 🛠️ 개발

@@ -58,12 +58,28 @@ except ImportError:
 
 
 # 로깅 설정
+from datetime import datetime, timezone, timedelta
+
+# KST timezone 설정 (UTC+9)
+KST = timezone(timedelta(hours=9))
+
+class KSTFormatter(logging.Formatter):
+    """KST 시간대를 사용하는 로그 포맷터"""
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=KST)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+# 로그 핸들러 설정
+handler = logging.StreamHandler()
+handler.setFormatter(KSTFormatter(
+    "%(asctime)s KST - %(name)s - %(levelname)s - %(message)s"
+))
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-    ]
+    handlers=[handler]
 )
 logger = logging.getLogger(__name__)
 
