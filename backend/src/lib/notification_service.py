@@ -295,10 +295,16 @@ class NotificationService:
         # 인증서 목록을 Facts로 구성
         facts = []
         for idx, (website, cert) in enumerate(certificates, 1):
+            from urllib.parse import urlparse
+            parsed = urlparse(website.url)
+            domain = parsed.netloc or parsed.path
+
             issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
+
+            # 도메인 정보 (클릭 가능한 링크)
             facts.append({
-                "name": f"[{idx}] {website.name}",
-                "value": f"{website.url}"
+                "name": f"🌐 [{idx}] {domain}",
+                "value": f"[{website.url}]({website.url})"
             })
             facts.append({
                 "name": "만료일",
@@ -324,21 +330,48 @@ class NotificationService:
             ]
         }
 
-        # 대시보드 링크 추가
-        dashboard_url = os.getenv("DASHBOARD_URL", "https://ssl-checker.example.com")
-        if dashboard_url != "https://ssl-checker.example.com":
-            message["potentialAction"] = [
-                {
-                    "@type": "OpenUri",
-                    "name": "SSL 대시보드 확인",
-                    "targets": [
-                        {
-                            "os": "default",
-                            "uri": dashboard_url
-                        }
-                    ]
-                }
-            ]
+        # 대시보드 링크 추가 (실제 호스트 도메인)
+        # 우선순위: DB 설정 > 환경변수
+        dashboard_url = None
+        try:
+            settings = self.settings_manager.get_settings()
+            # sync 함수를 async context에서 호출할 수 없으므로 환경변수 사용
+            pass
+        except:
+            pass
+
+        if not dashboard_url:
+            dashboard_url = os.getenv("DASHBOARD_URL", "")
+
+        actions = []
+
+        if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            actions.append({
+                "@type": "OpenUri",
+                "name": "🖥️ SSL 대시보드 열기",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": dashboard_url
+                    }
+                ]
+            })
+
+        # 각 도메인 링크 추가
+        for idx, (website, cert) in enumerate(certificates, 1):
+            actions.append({
+                "@type": "OpenUri",
+                "name": f"🔗 [{idx}] 도메인 접속",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": website.url
+                    }
+                ]
+            })
+
+        if actions:
+            message["potentialAction"] = actions
 
         # Power Automate 호환성: attachments 배열 추가
         # 일부 플로우가 attachments를 기대할 수 있음
@@ -391,10 +424,16 @@ class NotificationService:
         # 인증서 목록을 Facts로 구성
         facts = []
         for idx, (website, cert) in enumerate(certificates, 1):
+            from urllib.parse import urlparse
+            parsed = urlparse(website.url)
+            domain = parsed.netloc or parsed.path
+
             issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
+
+            # 도메인 정보 (클릭 가능한 링크)
             facts.append({
-                "name": f"[{idx}] {website.name}",
-                "value": f"{website.url}"
+                "name": f"🌐 [{idx}] {domain}",
+                "value": f"[{website.url}]({website.url})"
             })
             facts.append({
                 "name": "Expiry Date",
@@ -420,21 +459,48 @@ class NotificationService:
             ]
         }
 
-        # 대시보드 링크 추가
-        dashboard_url = os.getenv("DASHBOARD_URL", "https://ssl-checker.example.com")
-        if dashboard_url != "https://ssl-checker.example.com":
-            message["potentialAction"] = [
-                {
-                    "@type": "OpenUri",
-                    "name": "Check SSL Dashboard",
-                    "targets": [
-                        {
-                            "os": "default",
-                            "uri": dashboard_url
-                        }
-                    ]
-                }
-            ]
+        # 대시보드 링크 추가 (실제 호스트 도메인)
+        # 우선순위: DB 설정 > 환경변수
+        dashboard_url = None
+        try:
+            settings = self.settings_manager.get_settings()
+            # sync 함수를 async context에서 호출할 수 없으므로 환경변수 사용
+            pass
+        except:
+            pass
+
+        if not dashboard_url:
+            dashboard_url = os.getenv("DASHBOARD_URL", "")
+
+        actions = []
+
+        if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            actions.append({
+                "@type": "OpenUri",
+                "name": "🖥️ Open SSL Dashboard",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": dashboard_url
+                    }
+                ]
+            })
+
+        # 각 도메인 링크 추가
+        for idx, (website, cert) in enumerate(certificates, 1):
+            actions.append({
+                "@type": "OpenUri",
+                "name": f"🔗 [{idx}] Visit Domain",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": website.url
+                    }
+                ]
+            })
+
+        if actions:
+            message["potentialAction"] = actions
 
         # Power Automate 호환성: attachments 배열 추가
         message["attachments"] = [
@@ -500,13 +566,23 @@ class NotificationService:
         # 인증서 목록을 Facts로 구성 (각 인증서별 정확한 남은 일수 표시)
         facts = []
         for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
+            from urllib.parse import urlparse
+            parsed = urlparse(website.url)
+            domain = parsed.netloc or parsed.path
+
             issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
 
             # 도메인 정보 및 남은 일수
             days_text = f"{days_remaining}일 남음" if days_remaining > 1 else "내일 만료!"
+
+            # Facts는 일반 텍스트로 (마크다운 제한적 지원)
             facts.append({
-                "name": f"[{idx}] {website.name}",
-                "value": f"{website.url} - **{days_text}**"
+                "name": f"🌐 [{idx}] {domain}",
+                "value": f"{website.url}"
+            })
+            facts.append({
+                "name": "남은 기간",
+                "value": f"⏰ {days_text}"
             })
             facts.append({
                 "name": "만료일",
@@ -532,21 +608,47 @@ class NotificationService:
             ]
         }
 
-        # 대시보드 링크 추가
-        dashboard_url = os.getenv("DASHBOARD_URL", "https://ssl-checker.example.com")
-        if dashboard_url != "https://ssl-checker.example.com":
-            message["potentialAction"] = [
-                {
-                    "@type": "OpenUri",
-                    "name": "SSL 대시보드 확인",
-                    "targets": [
-                        {
-                            "os": "default",
-                            "uri": dashboard_url
-                        }
-                    ]
-                }
-            ]
+        # 대시보드 링크 추가 (실제 호스트 도메인)
+        # 우선순위: DB 설정 > 환경변수
+        dashboard_url = None
+        try:
+            settings = await self.settings_manager.get_settings()
+            dashboard_url = settings.dashboard_url
+        except:
+            pass
+
+        if not dashboard_url:
+            dashboard_url = os.getenv("DASHBOARD_URL", "")
+
+        actions = []
+
+        if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            actions.append({
+                "@type": "OpenUri",
+                "name": "🖥️ SSL 대시보드 열기",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": dashboard_url
+                    }
+                ]
+            })
+
+        # 각 도메인 링크 추가
+        for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
+            actions.append({
+                "@type": "OpenUri",
+                "name": f"🔗 [{idx}] 도메인 접속",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": website.url
+                    }
+                ]
+            })
+
+        if actions:
+            message["potentialAction"] = actions
 
         # Power Automate 호환성: attachments 배열 추가
         message["attachments"] = [
@@ -597,13 +699,17 @@ class NotificationService:
         # 인증서 목록을 Facts로 구성 (각 인증서별 정확한 남은 일수 표시)
         facts = []
         for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
+            from urllib.parse import urlparse
+            parsed = urlparse(website.url)
+            domain = parsed.netloc or parsed.path
+
             issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
 
             # 도메인 정보 및 남은 일수
             days_text = f"{days_remaining} days left" if days_remaining > 1 else "Expires tomorrow!"
             facts.append({
-                "name": f"[{idx}] {website.name}",
-                "value": f"{website.url} - **{days_text}**"
+                "name": f"🌐 [{idx}] {domain}",
+                "value": f"[{website.url}]({website.url}) - **{days_text}**"
             })
             facts.append({
                 "name": "Expiry Date",
@@ -629,21 +735,47 @@ class NotificationService:
             ]
         }
 
-        # 대시보드 링크 추가
-        dashboard_url = os.getenv("DASHBOARD_URL", "https://ssl-checker.example.com")
-        if dashboard_url != "https://ssl-checker.example.com":
-            message["potentialAction"] = [
-                {
-                    "@type": "OpenUri",
-                    "name": "Check SSL Dashboard",
-                    "targets": [
-                        {
-                            "os": "default",
-                            "uri": dashboard_url
-                        }
-                    ]
-                }
-            ]
+        # 대시보드 링크 추가 (실제 호스트 도메인)
+        # 우선순위: DB 설정 > 환경변수
+        dashboard_url = None
+        try:
+            settings = await self.settings_manager.get_settings()
+            dashboard_url = settings.dashboard_url
+        except:
+            pass
+
+        if not dashboard_url:
+            dashboard_url = os.getenv("DASHBOARD_URL", "")
+
+        actions = []
+
+        if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            actions.append({
+                "@type": "OpenUri",
+                "name": "🖥️ Open SSL Dashboard",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": dashboard_url
+                    }
+                ]
+            })
+
+        # 각 도메인 링크 추가
+        for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
+            actions.append({
+                "@type": "OpenUri",
+                "name": f"🔗 [{idx}] Visit Domain",
+                "targets": [
+                    {
+                        "os": "default",
+                        "uri": website.url
+                    }
+                ]
+            })
+
+        if actions:
+            message["potentialAction"] = actions
 
         # Power Automate 호환성: attachments 배열 추가
         message["attachments"] = [
