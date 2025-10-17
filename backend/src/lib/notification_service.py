@@ -191,50 +191,73 @@ class NotificationService:
     async def _get_expiring_certificates(self) -> List[tuple]:
         """만료 임박 인증서 조회
 
+        설정된 일수 중 최대값 이하로 남은 모든 인증서를 조회합니다.
+        예: notification_days=[187,30,7,1]이면 187일 이하 남은 모든 인증서 조회
+
         Returns:
-            (웹사이트, SSL인증서) 튜플 목록
+            (웹사이트, SSL인증서, 만료까지남은일수) 튜플 목록
         """
-        expiring_certs = []
+        if not self.notification_days:
+            return []
 
-        for days in self.notification_days:
-            # 정확히 N일 후 만료되는 인증서 조회
-            target_date = datetime.now(timezone.utc) + timedelta(days=days)
-            start_date = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            end_date = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # 최대 일수 이하로 남은 인증서 조회
+        max_days = max(self.notification_days)
+        now = datetime.now(timezone.utc)
+        # 187일 이하 = 현재 시각 + 187일 23시 59분 59초 이전
+        max_expiry_date = now + timedelta(days=max_days, hours=23, minutes=59, seconds=59)
 
-            result = await self.session.execute(
-                select(Website, SSLCertificate)
-                .join(SSLCertificate, Website.id == SSLCertificate.website_id)
-                .where(
-                    and_(
-                        Website.is_active == True,
-                        SSLCertificate.status == SSLStatus.VALID,
-                        SSLCertificate.expiry_date >= start_date,
-                        SSLCertificate.expiry_date <= end_date
-                    )
+        result = await self.session.execute(
+            select(Website, SSLCertificate)
+            .join(SSLCertificate, Website.id == SSLCertificate.website_id)
+            .where(
+                and_(
+                    Website.is_active == True,
+                    SSLCertificate.status == SSLStatus.VALID,
+                    SSLCertificate.expiry_date >= now,
+                    SSLCertificate.expiry_date <= max_expiry_date
                 )
-                .order_by(SSLCertificate.expiry_date)
             )
+            .order_by(SSLCertificate.expiry_date)
+        )
 
-            for website, cert in result.all():
-                expiring_certs.append((website, cert, days))
+        # 각 인증서의 정확한 남은 일수 계산 (내림 처리 - 사용자 친화적)
+        expiring_certs = []
+        for website, cert in result.all():
+            time_remaining = cert.expiry_date - now
+            # 내림: 187.9일 → 187일 (사용자는 "187일 남았다"고 인식)
+            days_remaining = time_remaining.days
+            expiring_certs.append((website, cert, days_remaining))
 
         return expiring_certs
 
     def _group_certificates_by_expiry_days(self, certificates: List[tuple]) -> Dict[int, List[tuple]]:
         """인증서를 만료 일수별로 그룹화
 
+        설정된 알림 일수 기준으로 그룹화합니다.
+        예: notification_days=[30,7,1]이고 인증서가 [28일, 5일, 1일] 남았다면
+        28일 -> 30일 그룹, 5일 -> 7일 그룹, 1일 -> 1일 그룹
+
         Args:
-            certificates: (웹사이트, SSL인증서, 만료일수) 튜플 목록
+            certificates: (웹사이트, SSL인증서, 실제남은일수) 튜플 목록
 
         Returns:
-            일수별로 그룹화된 인증서 딕셔너리
+            알림 일수별로 그룹화된 인증서 딕셔너리
         """
         grouped = {}
-        for website, cert, days in certificates:
-            if days not in grouped:
-                grouped[days] = []
-            grouped[days].append((website, cert))
+        sorted_notification_days = sorted(self.notification_days, reverse=True)  # 큰 값부터
+
+        for website, cert, days_remaining in certificates:
+            # 남은 일수에 맞는 알림 그룹 찾기
+            assigned_group = None
+            for notification_day in sorted_notification_days:
+                if days_remaining <= notification_day:
+                    assigned_group = notification_day
+                    # 작은 그룹을 우선 선택 (예: 5일 남았으면 30일이 아닌 7일 그룹)
+
+            if assigned_group is not None:
+                if assigned_group not in grouped:
+                    grouped[assigned_group] = []
+                grouped[assigned_group].append((website, cert))
 
         return grouped
 
@@ -346,15 +369,21 @@ class NotificationService:
         try:
             settings = await self.settings_manager.get_settings()
             dashboard_url = settings.dashboard_url
-        except:
+            logger.info(f"Dashboard URL from DB: {dashboard_url}")
+        except Exception as e:
+            logger.warning(f"Failed to get dashboard_url from DB: {e}")
             pass
 
         if not dashboard_url:
             dashboard_url = os.getenv("DASHBOARD_URL", "")
+            logger.info(f"Dashboard URL from ENV: {dashboard_url}")
+
+        logger.info(f"Final dashboard_url for notification: {dashboard_url}")
 
         actions = []
 
         if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            logger.info(f"Adding dashboard URL action button: {dashboard_url}")
             actions.append({
                 "@type": "OpenUri",
                 "name": "🖥️ SSL 대시보드 열기",
@@ -365,6 +394,8 @@ class NotificationService:
                     }
                 ]
             })
+        else:
+            logger.warning(f"Dashboard URL not added. Value: {dashboard_url}")
 
         # 각 도메인 링크 추가
         for idx, (website, cert) in enumerate(certificates, 1):
@@ -380,30 +411,42 @@ class NotificationService:
             })
 
         if actions:
+            logger.info(f"Adding {len(actions)} action buttons to message")
             message["potentialAction"] = actions
+        else:
+            logger.warning("No actions to add to message")
 
         # Power Automate 호환성: attachments 배열 추가
-        # 일부 플로우가 attachments를 기대할 수 있음
+        # Adaptive Card에도 액션 버튼 추가 (Power Automate는 Adaptive Card를 우선 처리함)
+        adaptive_card_actions = self._create_adaptive_card_actions(dashboard_url, certificates)
+
+        adaptive_card_content = {
+            "type": "AdaptiveCard",
+            "version": "1.0",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": title,
+                    "weight": "bolder",
+                    "size": "large"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": subtitle,
+                    "wrap": True
+                }
+            ]
+        }
+
+        # 액션이 있으면 추가
+        if adaptive_card_actions:
+            adaptive_card_content["actions"] = adaptive_card_actions
+            logger.info(f"Added {len(adaptive_card_actions)} actions to Adaptive Card")
+
         message["attachments"] = [
             {
                 "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "type": "AdaptiveCard",
-                    "version": "1.0",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": title,
-                            "weight": "bolder",
-                            "size": "large"
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": subtitle,
-                            "wrap": True
-                        }
-                    ]
-                }
+                "content": adaptive_card_content
             }
         ]
 
@@ -484,11 +527,16 @@ class NotificationService:
         try:
             settings = await self.settings_manager.get_settings()
             dashboard_url = settings.dashboard_url
-        except:
+            logger.info(f"Dashboard URL from DB: {dashboard_url}")
+        except Exception as e:
+            logger.warning(f"Failed to get dashboard_url from DB: {e}")
             pass
 
         if not dashboard_url:
             dashboard_url = os.getenv("DASHBOARD_URL", "")
+            logger.info(f"Dashboard URL from ENV: {dashboard_url}")
+
+        logger.info(f"Final dashboard_url for notification: {dashboard_url}")
 
         actions = []
 
@@ -518,7 +566,10 @@ class NotificationService:
             })
 
         if actions:
+            logger.info(f"Adding {len(actions)} action buttons to message")
             message["potentialAction"] = actions
+        else:
+            logger.warning("No actions to add to message")
 
         # Power Automate 호환성: attachments 배열 추가
         message["attachments"] = [
@@ -545,6 +596,37 @@ class NotificationService:
         ]
 
         return message
+
+    def _create_adaptive_card_actions(self, dashboard_url: str, websites_data: List[tuple]) -> List[Dict[str, Any]]:
+        """Adaptive Card용 액션 버튼 생성
+
+        Args:
+            dashboard_url: 대시보드 URL
+            websites_data: (website, cert, days_remaining) 튜플 목록 또는 (website, cert) 튜플 목록
+
+        Returns:
+            Adaptive Card actions 배열
+        """
+        actions = []
+
+        # 대시보드 링크
+        if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            actions.append({
+                "type": "Action.OpenUrl",
+                "title": "🖥️ SSL 대시보드 열기",
+                "url": dashboard_url
+            })
+
+        # 각 도메인 링크
+        for idx, item in enumerate(websites_data, 1):
+            website = item[0]  # 첫 번째 요소는 항상 website
+            actions.append({
+                "type": "Action.OpenUrl",
+                "title": f"🔗 [{idx}] 도메인 접속",
+                "url": website.url
+            })
+
+        return actions
 
     async def _create_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
         """테스트용 만료 알림 메시지 생성 (각 인증서의 정확한 남은 일수 표시)
@@ -632,15 +714,21 @@ class NotificationService:
         try:
             settings = await self.settings_manager.get_settings()
             dashboard_url = settings.dashboard_url
-        except:
+            logger.info(f"Dashboard URL from DB: {dashboard_url}")
+        except Exception as e:
+            logger.warning(f"Failed to get dashboard_url from DB: {e}")
             pass
 
         if not dashboard_url:
             dashboard_url = os.getenv("DASHBOARD_URL", "")
+            logger.info(f"Dashboard URL from ENV: {dashboard_url}")
+
+        logger.info(f"Final dashboard_url for notification: {dashboard_url}")
 
         actions = []
 
         if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+            logger.info(f"Adding dashboard URL action button: {dashboard_url}")
             actions.append({
                 "@type": "OpenUri",
                 "name": "🖥️ SSL 대시보드 열기",
@@ -651,6 +739,8 @@ class NotificationService:
                     }
                 ]
             })
+        else:
+            logger.warning(f"Dashboard URL not added. Value: {dashboard_url}")
 
         # 각 도메인 링크 추가
         for idx, (website, cert, days_remaining) in enumerate(certificates_with_days, 1):
@@ -666,29 +756,42 @@ class NotificationService:
             })
 
         if actions:
+            logger.info(f"Adding {len(actions)} action buttons to message")
             message["potentialAction"] = actions
+        else:
+            logger.warning("No actions to add to message")
 
         # Power Automate 호환성: attachments 배열 추가
+        # Adaptive Card에도 액션 버튼 추가 (Power Automate는 Adaptive Card를 우선 처리함)
+        adaptive_card_actions = self._create_adaptive_card_actions(dashboard_url, certificates_with_days)
+
+        adaptive_card_content = {
+            "type": "AdaptiveCard",
+            "version": "1.0",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": title,
+                    "weight": "bolder",
+                    "size": "large"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": subtitle,
+                    "wrap": True
+                }
+            ]
+        }
+
+        # 액션이 있으면 추가
+        if adaptive_card_actions:
+            adaptive_card_content["actions"] = adaptive_card_actions
+            logger.info(f"Added {len(adaptive_card_actions)} actions to Adaptive Card")
+
         message["attachments"] = [
             {
                 "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "type": "AdaptiveCard",
-                    "version": "1.0",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": title,
-                            "weight": "bolder",
-                            "size": "large"
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": subtitle,
-                            "wrap": True
-                        }
-                    ]
-                }
+                "content": adaptive_card_content
             }
         ]
 
@@ -759,11 +862,16 @@ class NotificationService:
         try:
             settings = await self.settings_manager.get_settings()
             dashboard_url = settings.dashboard_url
-        except:
+            logger.info(f"Dashboard URL from DB: {dashboard_url}")
+        except Exception as e:
+            logger.warning(f"Failed to get dashboard_url from DB: {e}")
             pass
 
         if not dashboard_url:
             dashboard_url = os.getenv("DASHBOARD_URL", "")
+            logger.info(f"Dashboard URL from ENV: {dashboard_url}")
+
+        logger.info(f"Final dashboard_url for notification: {dashboard_url}")
 
         actions = []
 
@@ -793,7 +901,10 @@ class NotificationService:
             })
 
         if actions:
+            logger.info(f"Adding {len(actions)} action buttons to message")
             message["potentialAction"] = actions
+        else:
+            logger.warning("No actions to add to message")
 
         # Power Automate 호환성: attachments 배열 추가
         message["attachments"] = [
@@ -933,6 +1044,14 @@ class NotificationService:
         logger.info(f"웹훅 URL 확인: {self.webhook_url[:100]}...")
         logger.debug(f"메시지 페이로드: {json.dumps(message, ensure_ascii=False, indent=2)}")
 
+        # potentialAction 디버깅
+        if "potentialAction" in message:
+            logger.info(f"Message has {len(message['potentialAction'])} potentialAction buttons")
+            for action in message["potentialAction"]:
+                logger.info(f"  - {action.get('name')}: {action.get('targets', [{}])[0].get('uri', 'N/A')}")
+        else:
+            logger.warning("Message does NOT have potentialAction field")
+
         for attempt in range(self.retry_count):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -998,40 +1117,58 @@ class NotificationService:
         }
 
         # Power Automate 호환성: attachments 배열 추가
-        test_message["attachments"] = [
-            {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "type": "AdaptiveCard",
-                    "version": "1.0",
-                    "body": [
+        # Adaptive Card에 액션 버튼 추가
+        adaptive_card_content = {
+            "type": "AdaptiveCard",
+            "version": "1.0",
+            "body": [
+                {
+                    "type": "TextBlock",
+                    "text": "🧪 SSL Checker 알림 테스트",
+                    "weight": "bolder",
+                    "size": "large",
+                    "color": "good"
+                },
+                {
+                    "type": "TextBlock",
+                    "text": "알림 시스템이 정상적으로 작동하고 있습니다.",
+                    "wrap": True
+                },
+                {
+                    "type": "FactSet",
+                    "facts": [
                         {
-                            "type": "TextBlock",
-                            "text": "🧪 SSL Checker 알림 테스트",
-                            "weight": "bolder",
-                            "size": "large",
-                            "color": "good"
+                            "title": "테스트 시간",
+                            "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
                         },
                         {
-                            "type": "TextBlock",
-                            "text": "알림 시스템이 정상적으로 작동하고 있습니다.",
-                            "wrap": True
-                        },
-                        {
-                            "type": "FactSet",
-                            "facts": [
-                                {
-                                    "title": "테스트 시간",
-                                    "value": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-                                },
-                                {
-                                    "title": "시스템 상태",
-                                    "value": "정상 ✅"
-                                }
-                            ]
+                            "title": "시스템 상태",
+                            "value": "정상 ✅"
                         }
                     ]
                 }
+            ]
+        }
+
+        # Dashboard URL 버튼 추가 (있는 경우)
+        try:
+            settings = await self.settings_manager.get_settings()
+            dashboard_url = settings.dashboard_url
+            if dashboard_url and dashboard_url != "https://ssl-checker.example.com":
+                adaptive_card_content["actions"] = [
+                    {
+                        "type": "Action.OpenUrl",
+                        "title": "🖥️ SSL 대시보드 열기",
+                        "url": dashboard_url
+                    }
+                ]
+        except:
+            pass
+
+        test_message["attachments"] = [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": adaptive_card_content
             }
         ]
 
@@ -1062,7 +1199,8 @@ class NotificationService:
         try:
             # 지정된 일수 이하로 남은 인증서 조회
             now = datetime.now(timezone.utc)
-            max_expiry_date = now + timedelta(days=days)
+            # 187일 이하 = 현재 시각 + 187일 23시 59분 59초 이전
+            max_expiry_date = now + timedelta(days=days, hours=23, minutes=59, seconds=59)
 
             result = await self.session.execute(
                 select(Website, SSLCertificate)
@@ -1078,10 +1216,12 @@ class NotificationService:
                 .order_by(SSLCertificate.expiry_date)
             )
 
-            # 각 인증서의 정확한 남은 일수 계산
+            # 각 인증서의 정확한 남은 일수 계산 (내림 처리 - 사용자 친화적)
             certificates_with_days = []
             for website, cert in result.all():
-                days_remaining = (cert.expiry_date - now).days
+                time_remaining = cert.expiry_date - now
+                # 내림: 187.9일 → 187일 (사용자는 "187일 남았다"고 인식)
+                days_remaining = time_remaining.days
                 certificates_with_days.append((website, cert, days_remaining))
 
             if not certificates_with_days:

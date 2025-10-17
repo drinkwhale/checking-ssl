@@ -255,30 +255,37 @@ class SchedulerService:
 
         try:
             async with get_async_session() as session:
-                notification_service = NotificationService(
+                # NotificationLib을 사용하여 DB 설정에서 알림 일수를 자동 로드
+                from .lib.notification_service import NotificationService as NotificationLib
+
+                notification_lib = NotificationLib(
                     session=session,
-                    webhook_url=self.teams_webhook_url,
-                    notification_days=[30, 14, 7, 3, 1]  # 만료 30, 14, 7, 3, 1일 전 알림
+                    webhook_url=self.teams_webhook_url
                 )
 
+                # DB 설정 로드 (알림 일수 포함)
+                await notification_lib._load_settings_from_db()
+
                 # 만료 임박 인증서 알림 발송
-                result = await notification_service.send_expiry_notifications()
+                success = await notification_lib.check_and_send_expiry_notifications()
 
                 end_time = datetime.utcnow()
                 duration = (end_time - start_time).total_seconds()
 
                 logger.info(
-                    f"만료 알림 체크 완료: {result.get('notifications_sent', 0)}개 알림 발송, "
-                    f"소요시간: {duration:.2f}초"
+                    f"만료 알림 체크 완료: 소요시간: {duration:.2f}초, 성공: {success}"
                 )
 
                 return {
                     "job_type": "expiry_notifications",
-                    "status": "completed",
+                    "status": "completed" if success else "failed",
                     "start_time": start_time.isoformat(),
                     "end_time": end_time.isoformat(),
                     "duration_seconds": duration,
-                    "result": result
+                    "result": {
+                        "success": success,
+                        "notification_days": notification_lib.notification_days
+                    }
                 }
 
         except Exception as e:
