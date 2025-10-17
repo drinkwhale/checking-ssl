@@ -249,14 +249,14 @@ class NotificationService:
             발송 성공 여부
         """
         try:
-            message = self._create_expiry_message(certificates, days)
+            message = await self._create_expiry_message(certificates, days)
             return await self._send_teams_message(message)
 
         except Exception as e:
             logger.error(f"만료 알림 발송 실패 ({days}일): {str(e)}")
             return False
 
-    def _create_expiry_message(self, certificates: List[tuple], days: int) -> Dict[str, Any]:
+    async def _create_expiry_message(self, certificates: List[tuple], days: int) -> Dict[str, Any]:
         """만료 알림 메시지 생성
 
         Args:
@@ -267,11 +267,11 @@ class NotificationService:
             Teams 메시지 페이로드
         """
         if self.language == "ko":
-            return self._create_korean_expiry_message(certificates, days)
+            return await self._create_korean_expiry_message(certificates, days)
         else:
-            return self._create_english_expiry_message(certificates, days)
+            return await self._create_english_expiry_message(certificates, days)
 
-    def _create_korean_expiry_message(self, certificates: List[tuple], days: int) -> Dict[str, Any]:
+    async def _create_korean_expiry_message(self, certificates: List[tuple], days: int) -> Dict[str, Any]:
         """한국어 만료 알림 메시지 생성"""
         # 긴급도 결정
         if days <= 1:
@@ -294,6 +294,8 @@ class NotificationService:
 
         # 인증서 목록을 Facts로 구성
         facts = []
+        now = datetime.now(timezone.utc)
+
         for idx, (website, cert) in enumerate(certificates, 1):
             from urllib.parse import urlparse
             parsed = urlparse(website.url)
@@ -301,10 +303,18 @@ class NotificationService:
 
             issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
 
-            # 도메인 정보 (클릭 가능한 링크)
+            # 남은 일수 계산
+            days_remaining = (cert.expiry_date - now).days
+            days_text = f"{days_remaining}일 남음" if days_remaining > 1 else "내일 만료!"
+
+            # 도메인 정보 (일반 텍스트 - Teams MessageCard는 Facts에서 마크다운 지원 안함)
             facts.append({
                 "name": f"🌐 [{idx}] {domain}",
-                "value": f"[{website.url}]({website.url})"
+                "value": f"{website.url}"
+            })
+            facts.append({
+                "name": "남은 기간",
+                "value": f"⏰ {days_text}"
             })
             facts.append({
                 "name": "만료일",
@@ -334,9 +344,8 @@ class NotificationService:
         # 우선순위: DB 설정 > 환경변수
         dashboard_url = None
         try:
-            settings = self.settings_manager.get_settings()
-            # sync 함수를 async context에서 호출할 수 없으므로 환경변수 사용
-            pass
+            settings = await self.settings_manager.get_settings()
+            dashboard_url = settings.dashboard_url
         except:
             pass
 
@@ -400,7 +409,7 @@ class NotificationService:
 
         return message
 
-    def _create_english_expiry_message(self, certificates: List[tuple], days: int) -> Dict[str, Any]:
+    async def _create_english_expiry_message(self, certificates: List[tuple], days: int) -> Dict[str, Any]:
         """영어 만료 알림 메시지 생성"""
         # 긴급도 결정
         if days <= 1:
@@ -423,6 +432,8 @@ class NotificationService:
 
         # 인증서 목록을 Facts로 구성
         facts = []
+        now = datetime.now(timezone.utc)
+
         for idx, (website, cert) in enumerate(certificates, 1):
             from urllib.parse import urlparse
             parsed = urlparse(website.url)
@@ -430,10 +441,18 @@ class NotificationService:
 
             issuer = cert.issuer.split(",")[0] if "," in cert.issuer else cert.issuer
 
-            # 도메인 정보 (클릭 가능한 링크)
+            # 남은 일수 계산
+            days_remaining = (cert.expiry_date - now).days
+            days_text = f"{days_remaining} days left" if days_remaining > 1 else "Expires tomorrow!"
+
+            # 도메인 정보 (일반 텍스트 - Teams MessageCard는 Facts에서 마크다운 지원 안함)
             facts.append({
                 "name": f"🌐 [{idx}] {domain}",
-                "value": f"[{website.url}]({website.url})"
+                "value": f"{website.url}"
+            })
+            facts.append({
+                "name": "Days Remaining",
+                "value": f"⏰ {days_text}"
             })
             facts.append({
                 "name": "Expiry Date",
@@ -463,9 +482,8 @@ class NotificationService:
         # 우선순위: DB 설정 > 환경변수
         dashboard_url = None
         try:
-            settings = self.settings_manager.get_settings()
-            # sync 함수를 async context에서 호출할 수 없으므로 환경변수 사용
-            pass
+            settings = await self.settings_manager.get_settings()
+            dashboard_url = settings.dashboard_url
         except:
             pass
 
