@@ -326,12 +326,13 @@
             e.preventDefault();
 
             const formData = new FormData(e.target);
+            const dashboardUrl = formData.get('dashboard_url');
             const updates = {
                 webhook_url: formData.get('webhook_url') || null,
                 notification_enabled: formData.get('notification_enabled') === 'on',
                 notification_days_before: formData.get('notification_days_before'),
                 notification_language: formData.get('notification_language'),
-                dashboard_url: formData.get('dashboard_url') || null,
+                dashboard_url: dashboardUrl ? dashboardUrl.trim() : null,
                 ssl_timeout_seconds: parseInt(formData.get('ssl_timeout_seconds')),
                 max_concurrent_checks: parseInt(formData.get('max_concurrent_checks'))
             };
