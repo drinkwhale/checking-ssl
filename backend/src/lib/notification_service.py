@@ -546,7 +546,7 @@ class NotificationService:
 
         return message
 
-    def _create_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
+    async def _create_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
         """테스트용 만료 알림 메시지 생성 (각 인증서의 정확한 남은 일수 표시)
 
         Args:
@@ -557,11 +557,11 @@ class NotificationService:
             Teams 메시지 페이로드
         """
         if self.language == "ko":
-            return self._create_korean_test_expiry_message(certificates_with_days, max_days)
+            return await self._create_korean_test_expiry_message(certificates_with_days, max_days)
         else:
-            return self._create_english_test_expiry_message(certificates_with_days, max_days)
+            return await self._create_english_test_expiry_message(certificates_with_days, max_days)
 
-    def _create_korean_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
+    async def _create_korean_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
         """한국어 테스트 만료 알림 메시지 생성"""
         # 최소 남은 일수 확인하여 긴급도 결정
         min_days = min(days for _, _, days in certificates_with_days)
@@ -694,7 +694,7 @@ class NotificationService:
 
         return message
 
-    def _create_english_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
+    async def _create_english_test_expiry_message(self, certificates_with_days: List[tuple], max_days: int) -> Dict[str, Any]:
         """영어 테스트 만료 알림 메시지 생성"""
         # 최소 남은 일수 확인하여 긴급도 결정
         min_days = min(days for _, _, days in certificates_with_days)
@@ -1093,7 +1093,7 @@ class NotificationService:
                 }
 
             # 실제 알림 메시지 생성 및 발송 (각 인증서의 정확한 남은 일수 포함)
-            message = self._create_test_expiry_message(certificates_with_days, days)
+            message = await self._create_test_expiry_message(certificates_with_days, days)
             success = await self._send_teams_message(message)
 
             return {
