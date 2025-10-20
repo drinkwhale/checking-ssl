@@ -156,9 +156,10 @@ class SchedulerService:
     async def _schedule_expiry_notifications(self) -> None:
         """만료 알림 체크 작업 스케줄링"""
         try:
-            # 인터벌 트리거 생성 (지정된 시간마다 실행)
-            trigger = IntervalTrigger(
-                hours=self.notification_check_interval,
+            # 크론 트리거 생성 (매일 오전 9시에 실행)
+            trigger = CronTrigger(
+                hour=9,
+                minute=0,
                 timezone='Asia/Seoul'
             )
 
@@ -171,7 +172,7 @@ class SchedulerService:
                 replace_existing=True
             )
 
-            logger.info(f"만료 알림 체크 작업 등록 완료: {self.notification_check_interval}시간마다")
+            logger.info("만료 알림 체크 작업 등록 완료: 매일 오전 9시")
 
         except Exception as e:
             logger.error(f"만료 알림 체크 작업 등록 실패: {e}")
@@ -249,7 +250,7 @@ class SchedulerService:
             }
 
     async def _run_expiry_notifications(self) -> Dict[str, Any]:
-        """만료 알림 체크 실행"""
+        """만료 알림 체크 실행 및 해당 사이트 SSL 재체크"""
         logger.info("SSL 만료 알림 체크 작업 시작")
         start_time = datetime.utcnow()
 
@@ -266,8 +267,31 @@ class SchedulerService:
                 # DB 설정 로드 (알림 일수 포함)
                 await notification_lib._load_settings_from_db()
 
-                # 만료 임박 인증서 알림 발송
+                # 1. 만료 임박 인증서 목록 조회 (알림 발송 전)
+                expiring_certificates = await notification_lib._get_expiring_certificates()
+
+                # 알림 발송할 웹사이트 ID 목록 추출
+                website_ids_to_recheck = list(set([
+                    website.id for website, cert, days_remaining in expiring_certificates
+                ]))
+
+                # 2. 만료 임박 인증서 알림 발송
                 success = await notification_lib.check_and_send_expiry_notifications()
+
+                # 3. 알림 발송된 사이트들의 SSL 인증서 재체크
+                ssl_recheck_result = None
+                if website_ids_to_recheck:
+                    logger.info(f"알림 발송된 {len(website_ids_to_recheck)}개 사이트의 SSL 인증서 재체크 시작")
+
+                    ssl_service = SSLService(session)
+                    ssl_recheck_result = await ssl_service.bulk_ssl_check_by_ids(
+                        website_ids=website_ids_to_recheck,
+                        max_concurrent=self.max_concurrent_jobs
+                    )
+
+                    logger.info(
+                        f"SSL 재체크 완료: {ssl_recheck_result['successful_checks']}/{ssl_recheck_result['total_websites']} 성공"
+                    )
 
                 end_time = datetime.utcnow()
                 duration = (end_time - start_time).total_seconds()
@@ -284,7 +308,9 @@ class SchedulerService:
                     "duration_seconds": duration,
                     "result": {
                         "success": success,
-                        "notification_days": notification_lib.notification_days
+                        "notification_days": notification_lib.notification_days,
+                        "websites_notified": len(website_ids_to_recheck),
+                        "ssl_recheck": ssl_recheck_result
                     }
                 }
 
