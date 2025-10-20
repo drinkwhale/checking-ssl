@@ -124,7 +124,7 @@ class SSLCertificate(Base):
     last_checked: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(__import__('datetime').timezone.utc),
         index=True,  # 배치 처리 최적화
     )
 
@@ -173,6 +173,8 @@ class SSLCertificate(Base):
             status: 상태
             error_message: 오류 메시지 (SSL 체크 실패 시)
         """
+        from datetime import timezone
+
         self.website_id = website_id
         self.issuer = issuer
         self.subject = subject
@@ -182,7 +184,7 @@ class SSLCertificate(Base):
         self.fingerprint = fingerprint
         self.status = status
         self.error_message = error_message
-        self.last_checked = datetime.utcnow()
+        self.last_checked = datetime.now(timezone.utc)
 
     @validates("expiry_date")
     def validate_expiry_date(self, key: str, expiry_date: datetime) -> datetime:
@@ -198,8 +200,19 @@ class SSLCertificate(Base):
         Raises:
             ValueError: 만료일이 발급일보다 이전인 경우
         """
+        from datetime import timezone
+
         if hasattr(self, "issued_date") and self.issued_date:
-            if expiry_date <= self.issued_date:
+            # timezone 정규화 (SQLite 환경 대응)
+            issued = self.issued_date
+            expiry = expiry_date
+
+            if issued.tzinfo is None:
+                issued = issued.replace(tzinfo=timezone.utc)
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+
+            if expiry <= issued:
                 raise ValueError("만료일은 발급일보다 미래여야 합니다")
 
         return expiry_date
@@ -240,7 +253,13 @@ class SSLCertificate(Base):
             만료 여부
         """
         from datetime import timezone
-        return datetime.now(timezone.utc) > self.expiry_date
+
+        # expiry_date가 naive면 UTC로 간주 (SQLite 환경 대응)
+        expiry = self.expiry_date
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+
+        return datetime.now(timezone.utc) > expiry
 
     def is_expiring_soon(self, days: int = 30) -> bool:
         """인증서가 곧 만료되는지 확인
@@ -253,8 +272,13 @@ class SSLCertificate(Base):
         """
         from datetime import timedelta, timezone
 
+        # expiry_date가 naive면 UTC로 간주 (SQLite 환경 대응)
+        expiry = self.expiry_date
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+
         threshold = datetime.now(timezone.utc) + timedelta(days=days)
-        return self.expiry_date <= threshold
+        return expiry <= threshold
 
     def days_until_expiry(self) -> int:
         """만료까지 남은 일수
@@ -263,7 +287,13 @@ class SSLCertificate(Base):
             만료까지 남은 일수 (음수면 이미 만료됨)
         """
         from datetime import timezone
-        delta = self.expiry_date - datetime.now(timezone.utc)
+
+        # expiry_date가 naive면 UTC로 간주 (SQLite 환경 대응)
+        expiry = self.expiry_date
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+
+        delta = expiry - datetime.now(timezone.utc)
         return delta.days
 
     def update_status_based_on_expiry(self) -> None:
